@@ -124,6 +124,7 @@ class Bridge:
 		connectionFilePath: str,
 		onError: Callable[[str], None],
 		port: int = 0,
+		addonVersion: str | None = None,
 	) -> None:
 		"""
 		:param handlers: Maps method names to callables taking the request params.
@@ -131,11 +132,13 @@ class Bridge:
 		:param connectionFilePath: Where to publish the port and token for the MCP server.
 		:param onError: Called with a description of unexpected handler exceptions, for logging.
 		:param port: TCP port to listen on; 0 picks a free port.
+		:param addonVersion: Published too, so a server that does not match can say which one to update.
 		"""
 		self._handlers = handlers
 		self._connectionFilePath = connectionFilePath
 		self._onError = onError
 		self._requestedPort = port
+		self._addonVersion = addonVersion
 		self.token = secrets.token_urlsafe(32)
 		self._server: _BridgeHttpServer | None = None
 		self._thread: threading.Thread | None = None
@@ -187,6 +190,7 @@ class Bridge:
 			"port": self.port,
 			"token": self.token,
 			"pid": os.getpid(),
+			"addonVersion": self._addonVersion,
 		}
 		directory = os.path.dirname(self._connectionFilePath)
 		os.makedirs(directory, exist_ok=True)

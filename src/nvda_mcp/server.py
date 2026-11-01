@@ -76,12 +76,39 @@ FormatParam = Annotated[
 
 mcp = MCPServer("nvda_mcp", instructions=INSTRUCTIONS)
 _client = BridgeClient()
+MAX_CLIENT_NAME_CHARS = 60
 
 
 def set_bridge_client(client: BridgeClient) -> None:
     """Replace the bridge client; used by tests."""
     global _client
     _client = client
+
+
+def client_display_name(client_info: Any) -> str | None:
+    """The client's name, such as "Claude Code", made safe to show in NVDA.
+
+    :param client_info: The client's ``Implementation`` (its title and name), or None.
+    """
+    name = getattr(client_info, "title", None) or getattr(client_info, "name", None)
+    if not isinstance(name, str):
+        return None
+    name = " ".join("".join(char if char.isprintable() else " " for char in name).split())
+    return name[:MAX_CLIENT_NAME_CHARS] or None
+
+
+async def _remember_client_name(ctx: Any, call_next: Any) -> Any:
+    """Middleware: note who the client is, so NVDA can say who wants to press keys.
+
+    Older clients say it once when they connect, newer ones with every request; the session has it either way.
+    """
+    client_params = ctx.session.client_params
+    if client_params is not None:
+        _client.client_name = client_display_name(client_params.client_info)
+    return await call_next(ctx)
+
+
+mcp.middleware.append(_remember_client_name)
 
 
 async def _call(method: str, params: dict[str, Any] | None = None, timeout: float | None = None) -> Any:

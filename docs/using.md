@@ -1,6 +1,6 @@
 # Using NVDA MCP
 
-A guide for people who use NVDA MCP with an AI assistant such as Claude, and for the assistant itself.
+A guide for people who use NVDA MCP with an AI assistant, and for the assistant itself.
 [README.md](../README.md) covers installing it and lists every tool.
 
 ## What the assistant can do
@@ -38,71 +38,51 @@ Turn them on in NVDA menu → Preferences → Settings → **NVDA MCP**.
 
 ## Updating
 
-The server and the add-on share one version number. **Always update both.**
-The server checks the add-on's bridge protocol version and refuses to work with a different one,
-and a new tool usually needs new add-on code too.
+The server and the add-on share one version number. **Update both.**
+When they don't match, every tool fails with a message saying which one is older and how to update it.
 
-1. Get the new version of this folder.
-2. Update the server. It is installed in editable mode, so this is only needed when dependencies change,
-   but it does no harm:
+1. **The add-on**: NVDA tells you when an update is ready. Or open Tools, Add-on Store, *Updatable add-ons*.
+   Install it and restart NVDA.
+2. **The server**: in NVDA's Settings, **NVDA MCP** category, press **Copy setup command** again and run what it
+   copies, or paste the settings again. The command names the server version that matches the new add-on.
+   - Claude Code may say the `nvda` server already exists. Remove it first with `claude mcp remove nvda --scope user`.
+   - If you installed the server with pipx, run `pipx upgrade nvda-mcp`; with pip, `pip install -U nvda-mcp`.
+3. **Restart the server** in your assistant (see the next section).
+4. Check it worked: ask for NVDA's status. `addonVersion` should be the new version.
 
-   ```
-   .venv\Scripts\python -m pip install -e .
-   ```
+## Restarting the server
 
-3. Build the add-on and open it:
+The assistant starts the server when a session or chat starts and keeps it running until it ends,
+so a running server keeps the version it started with. Starting a new session always gets the new one.
 
-   ```
-   python build_addon.py
-   ```
-
-   Open `dist\nvdaMcp-<version>.nvda-addon`, accept the update and restart NVDA.
-4. Restart the server in your assistant (see the next section).
-5. Check it worked: ask for `nvda_get_status`. `addonVersion` should be the new version.
-
-If the server and add-on do not match, every tool fails with a message saying
-"Update the add-on and the server together."
-
-## Restarting the server after an update
-
-The assistant starts the server when a session starts and keeps it running until the session ends,
-so the server keeps running the code it started with.
-
-**In Claude Code (desktop app or terminal)** you do not need a new session.
-Stop the server process; the next NVDA tool call starts a new one with the new code:
+**In Claude Code** you can keep the session: stop the server process, and the next NVDA tool call
+starts a new one.
 
 ```
 taskkill /IM nvda-mcp.exe /T /F
 ```
 
-This stops the server of every open Claude session; each one starts again on its next NVDA tool call.
-You can also ask the assistant to run it.
+This stops the server of every open session; each starts again on its next NVDA tool call.
+You can also ask the assistant to run it. If the new version adds or removes tools and the assistant does not
+see them, start a new session.
 
-If the new version adds or removes tools and the assistant does not see them, start a new session.
+In the Claude desktop app, closing a session with Ctrl+W does not stop its server; archiving it (Ctrl+Alt+A) does.
+Each open session has its own server.
 
-Closing a session with Ctrl+W does not stop its server; archiving it (Ctrl+Alt+A) does.
-Each open session has its own server, so archive old test sessions to avoid several servers running.
-
-## Developing the add-on
-
-To try changed add-on code without reinstalling it:
-
-1. Copy the changed files from `addon\globalPlugins\nvdaMcp\` to
-   `%APPDATA%\nvda\addons\nvdaMcp\globalPlugins\nvdaMcp\`.
-2. Press NVDA+Ctrl+F3, or ask the assistant to call `nvda_reload_plugins`.
-
-If you changed the bridge protocol version, restart the server too.
+**In Claude Desktop**, quit it from the system tray and start it again.
 
 ## When something does not work
 
 | Symptom | What to do |
 |---|---|
 | "NVDA is not reachable" | Check NVDA is running and the add-on is enabled. Right after a reload, wait a second and try again. |
-| "bridge protocol … Update the add-on and the server together" | Update both, as above. |
+| "… do not match" | Update the one it names, as above. |
+| "uvx is not recognized" | Install uv (see the README), then open a new command prompt or restart your assistant. |
 | `controlDisabled` | Allow key presses in NVDA's NVDA MCP settings. |
 | `controlDenied` | You answered No, or the question closed without an answer. Ask the assistant to try again and answer Yes. |
 | `appNotAllowed` | Add the application to "Only let MCP clients control these applications", or empty that setting. |
 | A tool behaves like an old version | The server was not restarted; see above. |
+| You use a portable copy of NVDA | Give the server `NVDA_MCP_CONNECTION_FILE=<portable folder>\userConfig\nvdaMcp\connection.json` as an environment variable, for example with `--env` in `claude mcp add`. |
 
 ## For the assistant
 
@@ -114,3 +94,4 @@ In addition:
 - Prefer reading tools. `nvda_preview_speech` shows what NVDA would say without moving focus.
 - Never retry after `controlDenied`.
 - After an update, check `addonVersion` in `nvda_get_status` before trusting new behaviour.
+- Developers changing NVDA MCP itself: see [CONTRIBUTING.md](../CONTRIBUTING.md).

@@ -1,11 +1,14 @@
-"""Package the NVDA add-on: compile translations and zip ``addon/`` into ``dist/<name>-<version>.nvda-addon``.
+"""Package the NVDA add-on into ``dist/<name>-<version>.nvda-addon``.
 
+It compiles the translations, turns the READMEs into the add-on's help pages, and adds the license.
 Usage: python build_addon.py
-Only the standard library is needed, so this runs with any Python 3.11+.
+Needs the ``markdown`` package, which ``pip install -e ".[dev]"`` installs.
 """
 
 import ast
 import configparser
+import html
+import re
 import struct
 import zipfile
 from pathlib import Path
@@ -16,6 +19,11 @@ DIST_DIR = ROOT / "dist"
 EXCLUDED_SUFFIXES = {".po", ".pyc"}
 # Development-only files that live next to the add-on code. Hidden files and folders (caches) are skipped too.
 EXCLUDED_NAMES = {"ruff.toml"}
+# The help page for each language, made from these files. NVDA opens doc/<language>/readme.html.
+HELP_SOURCES = {"en": ROOT / "README.md", "id": ROOT / "docs" / "README.id.md"}
+LICENSE_FILE = ROOT / "COPYING.txt"
+# Markdown links that are not web addresses or anchors, such as docs/using.md.
+_RELATIVE_LINK = re.compile(r"\]\((?!https?:|#|mailto:)([^)\s]+)\)")
 
 
 def parse_po(path: Path) -> dict[str, str]:
@@ -65,11 +73,37 @@ def read_manifest() -> configparser.SectionProxy:
     return parser["manifest"]
 
 
+def help_page(markdown_path: Path, language: str, title: str, repository_url: str) -> str:
+    """A standalone HTML help page from a Markdown file.
+
+    Links to other files in the repository point to them on GitHub, since only this page is in the add-on.
+    """
+    import markdown
+
+    text = markdown_path.read_text(encoding="utf-8")
+    base = markdown_path.parent.relative_to(ROOT).as_posix()
+    prefix = f"{repository_url}/blob/main/" + (f"{base}/" if base != "." else "")
+    text = _RELATIVE_LINK.sub(lambda match: f"]({prefix}{match.group(1)})", text)
+    body = markdown.markdown(text, extensions=["tables", "fenced_code", "toc"])
+    return (
+        "<!DOCTYPE html>\n"
+        f'<html lang="{language}">\n<head>\n<meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        f"<title>{html.escape(title)}</title>\n"
+        "<style>body{font-family:sans-serif;max-width:50em;margin:auto;padding:1em;line-height:1.5}"
+        "table{border-collapse:collapse}th,td{border:1px solid #888;padding:.3em .6em;text-align:left}"
+        "pre{overflow-x:auto;background:#f4f4f4;padding:.6em}</style>\n"
+        f"</head>\n<body>\n{body}\n</body>\n</html>\n"
+    )
+
+
 def build() -> Path:
     for po_path in ADDON_DIR.glob("locale/*/LC_MESSAGES/*.po"):
         write_mo(parse_po(po_path), po_path.with_suffix(".mo"))
     manifest = read_manifest()
     name, version = manifest["name"].strip('"'), manifest["version"].strip('"')
+    summary, url = manifest["summary"].strip('"'), manifest["url"].strip('"')
+    doc_file_name = manifest["docFileName"].strip('"')
     DIST_DIR.mkdir(exist_ok=True)
     output = DIST_DIR / f"{name}-{version}.nvda-addon"
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -84,6 +118,9 @@ def build() -> Path:
             ):
                 continue
             archive.write(path, relative.as_posix())
+        for language, source in HELP_SOURCES.items():
+            archive.writestr(f"doc/{language}/{doc_file_name}", help_page(source, language, summary, url))
+        archive.write(LICENSE_FILE, LICENSE_FILE.name)
     return output
 
 

@@ -6,7 +6,27 @@ and versions follow [Semantic Versioning](https://semver.org/).
 The add-on (`addon/manifest.ini`) and the server (`pyproject.toml`) share one version number;
 install them together.
 
-## [Unreleased]
+## [0.4.0] - Unreleased
+
+The first release for the NV Access Add-on Store and PyPI.
+
+### Added
+
+- The server is published on PyPI as `nvda-mcp`, so it runs with `uvx nvda-mcp`, `pipx install nvda-mcp`
+  or `python -m nvda_mcp`; no copy of the source code is needed.
+- NVDA MCP settings: *Set up this MCP client* and **Copy setup command** copy the command (Claude Code, Codex CLI)
+  or the JSON settings (Claude Desktop, Cursor and others) that start the server version matching the add-on.
+- The add-on has help pages in English and Indonesian, opened from the Add-on Store or the add-ons manager.
+- The add-on includes its license (GNU GPL v2), and its manifest links to the source code.
+- [docs/using.md](docs/using.md): day-to-day use, updating, and restarting the server after an update.
+- [CONTRIBUTING.md](CONTRIBUTING.md): building, testing and releasing.
+
+### Changed
+
+- The dialog asking to allow key presses names the MCP client asking, as the client calls itself,
+  instead of always saying Claude. The action log records the client too.
+- When the add-on and the server don't match, the error says which one is older and how to update it.
+- The README is written for people installing the add-on, and explains what it is for and who it is for.
 
 ### Fixed
 
@@ -17,10 +37,6 @@ install them together.
   such as a browser's live region, as "NVDA said around then", instead of "NVDA said nothing".
 - `nvda_preview_speech` with `target: "window"` always includes the focused control, searches the web document
   first, and says in its first line when the search stopped before checking every control.
-
-### Added
-
-- [docs/using.md](docs/using.md): using NVDA MCP day to day, updating, and restarting the server after an update.
 
 ## [0.3.0] - 2026-11-02
 
@@ -103,6 +119,7 @@ First release.
 - Settings for connecting, pressing keys (off by default), asking before the first key press and speech history size.
 - Indonesian translation.
 
+[0.4.0]: https://github.com/InfiArtt/nvda-mcp/releases/tag/v0.4.0
 [0.3.0]: #030---2026-11-02
 [0.2.0]: #020---2026-11-01
 [0.1.1]: #011---2026-11-01

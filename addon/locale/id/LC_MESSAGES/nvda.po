@@ -15,8 +15,8 @@ msgid "NVDA MCP"
 msgstr "NVDA MCP"
 
 #. Translators: A checkbox in the NVDA MCP settings panel.
-msgid "&Let MCP clients such as Claude connect to NVDA"
-msgstr "&Izinkan klien MCP seperti Claude terhubung ke NVDA"
+msgid "&Let MCP clients, such as AI assistants, connect to NVDA"
+msgstr "&Izinkan klien MCP, seperti asisten AI, terhubung ke NVDA"
 
 #. Translators: A checkbox in the NVDA MCP settings panel.
 msgid "Allow MCP clients to &press keys"
@@ -58,15 +58,25 @@ msgstr "Menghentikan klien MCP menekan tombol sampai Anda menyetujui lagi"
 msgid "Key press permission revoked"
 msgstr "Izin menekan tombol dicabut"
 
+#. Translators: Says who wants to press keys, in the dialog asking to allow it.
+#. {client} is the name the program gives itself, such as Claude Code; NVDA cannot verify it.
+msgid "An MCP client calling itself {client}"
+msgstr "Klien MCP yang menyebut dirinya {client}"
+
+#. Translators: Says who wants to press keys, when the program gave no name.
+msgid "An MCP client, such as an AI assistant,"
+msgstr "Sebuah klien MCP, misalnya asisten AI,"
+
 #. Translators: Asks the user whether an AI assistant may press keys through NVDA.
+#. {who} is who is asking, such as "An MCP client calling itself Claude Code".
 msgid ""
-"Claude wants to press keys on this computer through NVDA, for example to "
+"{who} wants to press keys on this computer through NVDA, for example to "
 "move through an application with Tab. Keys go to whichever window is "
 "active.\n"
 "\n"
 "Allow this until NVDA restarts?"
 msgstr ""
-"Claude ingin menekan tombol di komputer ini melalui NVDA, misalnya untuk "
+"{who} ingin menekan tombol di komputer ini melalui NVDA, misalnya untuk "
 "berpindah di dalam aplikasi dengan Tab. Tombol dikirim ke jendela mana pun "
 "yang sedang aktif.\n"
 "\n"
@@ -91,3 +101,32 @@ msgstr "Membuka catatan aksi yang telah dilakukan klien MCP"
 #. Translators: Reported when the user opens the action log before any action was recorded.
 msgid "No actions have been logged yet"
 msgstr "Belum ada aksi yang dicatat"
+
+#. Translators: An MCP client in the NVDA MCP settings panel's list of clients to set up.
+msgid "Claude Code"
+msgstr "Claude Code"
+
+#. Translators: An MCP client in the NVDA MCP settings panel's list of clients to set up.
+msgid "Codex CLI"
+msgstr "Codex CLI"
+
+#. Translators: In the NVDA MCP settings panel's list of clients to set up:
+#. clients configured with a JSON settings file instead of a command.
+msgid "Claude Desktop, Cursor and others (JSON settings)"
+msgstr "Claude Desktop, Cursor, dan lainnya (pengaturan JSON)"
+
+#. Translators: A list in the NVDA MCP settings panel, choosing the program to set up.
+msgid "Set up this MCP &client:"
+msgstr "Siapkan &klien MCP ini:"
+
+#. Translators: A button in the NVDA MCP settings panel.
+msgid "C&opy setup command"
+msgstr "Sal&in perintah penyiapan"
+
+#. Translators: Reported after copying an MCP client's JSON settings in the NVDA MCP settings panel.
+msgid "Settings copied. Paste them into the client's MCP settings file."
+msgstr "Pengaturan disalin. Tempelkan ke file pengaturan MCP milik klien tersebut."
+
+#. Translators: Reported after copying a setup command in the NVDA MCP settings panel.
+msgid "Setup command copied. Paste it into a command prompt and press Enter."
+msgstr "Perintah penyiapan disalin. Tempelkan ke command prompt lalu tekan Enter."

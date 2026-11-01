@@ -1,18 +1,37 @@
 [project]
 name = "nvda-mcp"
-version = "0.3.0"
+version = "0.4.0"
 description = "MCP server that lets AI assistants work with the NVDA screen reader through the NVDA MCP add-on."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "GPL-2.0-or-later"
+license-files = ["COPYING.txt"]
 authors = [{ name = "audiogaming23", email = "audiogaming23@gmail.com" }]
+keywords = ["nvda", "screen reader", "accessibility", "mcp", "model context protocol", "ai assistant"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Adaptive Technologies",
+    "Topic :: Software Development :: Testing",
+]
 dependencies = ["mcp>=2.3,<3", "httpx>=0.27"]
+
+[project.urls]
+Homepage = "https://github.com/InfiArtt/nvda-mcp"
+Documentation = "https://github.com/InfiArtt/nvda-mcp/blob/main/docs/using.md"
+Changelog = "https://github.com/InfiArtt/nvda-mcp/blob/main/CHANGELOG.md"
+Issues = "https://github.com/InfiArtt/nvda-mcp/issues"
 
 [project.scripts]
 nvda-mcp = "nvda_mcp.server:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.16"]
+dev = ["pytest>=8", "ruff>=0.16", "markdown>=3.5", "build>=1.2"]
 
 [build-system]
 requires = ["hatchling"]
@@ -20,6 +39,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nvda_mcp"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/nvda_mcp", "README.md", "COPYING.txt", "CHANGELOG.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
