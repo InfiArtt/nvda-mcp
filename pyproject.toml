@@ -1,0 +1,30 @@
+[project]
+name = "nvda-mcp"
+version = "0.3.0"
+description = "MCP server that lets AI assistants work with the NVDA screen reader through the NVDA MCP add-on."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "GPL-2.0-or-later"
+authors = [{ name = "audiogaming23", email = "audiogaming23@gmail.com" }]
+dependencies = ["mcp>=2.3,<3", "httpx>=0.27"]
+
+[project.scripts]
+nvda-mcp = "nvda_mcp.server:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.16"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nvda_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+# Downloaded reference documents must stay byte-for-byte as published.
+extend-exclude = ["docs"]
+line-length = 110

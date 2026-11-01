@@ -1,0 +1,93 @@
+# Indonesian translation of the NVDA MCP add-on.
+# This file is covered by the GNU General Public License.
+msgid ""
+msgstr ""
+"Project-Id-Version: nvdaMcp 0.1.1\n"
+"Language: id\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#. Translators: The name of the category of this add-on's commands in the Input Gestures dialog.
+#. Translators: The title of this add-on's panel in NVDA's settings dialog.
+msgid "NVDA MCP"
+msgstr "NVDA MCP"
+
+#. Translators: A checkbox in the NVDA MCP settings panel.
+msgid "&Let MCP clients such as Claude connect to NVDA"
+msgstr "&Izinkan klien MCP seperti Claude terhubung ke NVDA"
+
+#. Translators: A checkbox in the NVDA MCP settings panel.
+msgid "Allow MCP clients to &press keys"
+msgstr "Izinkan klien MCP &menekan tombol"
+
+#. Translators: A checkbox in the NVDA MCP settings panel.
+msgid "&Ask before the first key press after NVDA starts"
+msgstr "&Tanyakan sebelum penekanan tombol pertama setelah NVDA dimulai"
+
+#. Translators: A spin control in the NVDA MCP settings panel.
+msgid "Number of spoken &messages to remember:"
+msgstr "Jumlah &ucapan yang diingat:"
+
+#. Translators: Reported when an NVDA MCP command is used but the add-on is not running.
+msgid "NVDA MCP is off. Turn it on in NVDA Settings, NVDA MCP category."
+msgstr "NVDA MCP mati. Nyalakan di Pengaturan NVDA, kategori NVDA MCP."
+
+#. Translators: Describes a command in the Input Gestures dialog.
+msgid "Reports whether NVDA MCP is running and whether it may press keys"
+msgstr "Melaporkan apakah NVDA MCP berjalan dan apakah boleh menekan tombol"
+
+#. Translators: Reported by the status command when key presses are allowed.
+msgid "may press keys"
+msgstr "boleh menekan tombol"
+
+#. Translators: Reported by the status command when key presses are not allowed.
+msgid "read only"
+msgstr "hanya baca"
+
+#. Translators: Reported by the status command. {port} is a network port number, {control} describes permissions.
+msgid "NVDA MCP running on port {port}, {control}"
+msgstr "NVDA MCP berjalan di port {port}, {control}"
+
+#. Translators: Describes a command in the Input Gestures dialog.
+msgid "Stops MCP clients from pressing keys until you approve again"
+msgstr "Menghentikan klien MCP menekan tombol sampai Anda menyetujui lagi"
+
+#. Translators: Reported after the user revokes permission to press keys.
+msgid "Key press permission revoked"
+msgstr "Izin menekan tombol dicabut"
+
+#. Translators: Asks the user whether an AI assistant may press keys through NVDA.
+msgid ""
+"Claude wants to press keys on this computer through NVDA, for example to "
+"move through an application with Tab. Keys go to whichever window is "
+"active.\n"
+"\n"
+"Allow this until NVDA restarts?"
+msgstr ""
+"Claude ingin menekan tombol di komputer ini melalui NVDA, misalnya untuk "
+"berpindah di dalam aplikasi dengan Tab. Tombol dikirim ke jendela mana pun "
+"yang sedang aktif.\n"
+"\n"
+"Izinkan sampai NVDA dimulai ulang?"
+
+#. Translators: Title of the dialog asking to allow an AI assistant to press keys.
+msgid "NVDA MCP: allow key presses?"
+msgstr "NVDA MCP: izinkan penekanan tombol?"
+
+#. Translators: A text field in the NVDA MCP settings panel.
+msgid "Only let MCP clients control these &applications (comma separated, empty for all):"
+msgstr "Hanya izinkan klien MCP mengontrol &aplikasi ini (pisahkan dengan koma, kosongkan untuk semua):"
+
+#. Translators: A checkbox in the NVDA MCP settings panel.
+msgid "&Keep a log of every action MCP clients take"
+msgstr "&Catat setiap aksi yang dilakukan klien MCP"
+
+#. Translators: Describes a command in the Input Gestures dialog.
+msgid "Opens the log of actions MCP clients have taken"
+msgstr "Membuka catatan aksi yang telah dilakukan klien MCP"
+
+#. Translators: Reported when the user opens the action log before any action was recorded.
+msgid "No actions have been logged yet"
+msgstr "Belum ada aksi yang dicatat"

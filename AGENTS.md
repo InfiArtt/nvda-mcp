@@ -4,16 +4,27 @@ This file is read by AI coding agents (Claude Code, Codex, GitHub Copilot, Curso
 
 ## About this project
 
-<!-- Replace with: what the project does, who uses it, and its main language and framework. -->
+NVDA MCP lets AI assistants work with the NVDA screen reader through the Model Context Protocol.
+Its users are mostly blind or low vision; some are developers of NVDA add-ons and accessible applications.
+It has two parts that share one version number and must be released together:
+
+- `addon/`: an NVDA add-on (Python 3, NVDA 2026.3 or later) with a local HTTP bridge protected by a per-start token.
+  It follows NVDA's coding standards: tabs, camelCase, user-facing strings wrapped in `_()` with `# Translators:` comments.
+- `src/nvda_mcp/`: the MCP server (Python 3.11 or later, official MCP Python SDK), which talks to the bridge.
+  It follows PEP 8.
+
+[README.md](README.md) describes the tools and settings; [docs/using.md](docs/using.md) covers day-to-day use and updating.
 
 ## Commands
 
-<!-- Replace with this project's real commands. These are the defaults that CI (.github/workflows/ci.yml) runs. -->
+On Windows, from the repository root:
 
-- Python: `pip install -r requirements.txt`, then `pytest`. CI also runs `python -m compileall -q .`.
-- Node.js: `npm ci`, then `npm run lint`, `npm run build` and `npm test`.
+- Install: `python -m venv .venv`, then `.venv\Scripts\python -m pip install -e ".[dev]"`.
+- Test: `.venv\Scripts\python -m pytest`. The tests run the real bridge and server against a scripted window; they need no NVDA.
+- Lint: `.venv\Scripts\ruff check .` and `.venv\Scripts\ruff format --check .`.
+- Build the add-on: `python build_addon.py` (writes `dist\nvdaMcp-<version>.nvda-addon`).
 
-Run the tests before committing, and add a test when you fix a bug.
+CI (`.github/workflows/ci.yml`) runs all of these on Windows. Run the tests before committing, and add a test when you fix a bug.
 
 ## Rules
 
@@ -28,4 +39,17 @@ Run the tests before committing, and add a test when you fix a bug.
 
 ## Project-specific notes
 
-<!-- Add what an agent should know about this project as you learn it: architecture, pitfalls, how releases work, files that must not be edited by hand. -->
+- **Trying changes in a running NVDA.** Add-on code: copy the changed files to
+  `%APPDATA%\nvda\addons\nvdaMcp\globalPlugins\nvdaMcp\`, then press NVDA+Ctrl+F3 or call `nvda_reload_plugins`.
+  Server code: the session keeps running the server it started with; stop it with
+  `taskkill /IM nvda-mcp.exe /T /F` and the next NVDA tool call starts the new code.
+- **The user hears what you do.** Tools that press keys or type act on the user's real computer.
+  Say what you will press before pressing it, and never retry after `controlDenied`.
+- **Bridge protocol.** Changing a bridge method's parameters or results means raising the protocol version in
+  `addon/globalPlugins/nvdaMcp/bridge.py` and `src/nvda_mcp/bridge_client.py` together.
+- **Translations.** A test fails when a translatable string has no Indonesian translation in
+  `addon/locale/id/LC_MESSAGES/nvda.po`. The `.mo` files are built by `build_addon.py`; don't commit them.
+- **Versions** live in `pyproject.toml` and `addon/manifest.ini` and must match. Record changes in `CHANGELOG.md`.
+- **Add-on Store.** Submissions to the NV Access Add-on Store are made by a person. Prepare the text and files;
+  never open issues or pull requests in `nvaccess/addon-datastore`.
+- `docs/reference/` (git-ignored) may hold local copies of NVDA's documentation; README.md links to the originals.

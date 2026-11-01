@@ -9,12 +9,8 @@ updates:
       actions:
         patterns: ["*"]
 
-  # Uncomment the ecosystem your project uses once it has dependencies.
-  # - package-ecosystem: pip
-  #   directory: /
-  #   schedule:
-  #     interval: weekly
-  # - package-ecosystem: npm
-  #   directory: /
-  #   schedule:
-  #     interval: weekly
+  # Keeps the server's dependencies in pyproject.toml up to date.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
