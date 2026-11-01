@@ -181,6 +181,12 @@ For developers of add-ons and accessible applications:
 Every action reports what NVDA said afterwards and where focus went, and can wait for an expected announcement,
 such as "sent" or a dialog's title.
 
+## Support NVDA MCP
+
+NVDA MCP is free, and made in spare time. If it helps you, you can support its development with a donation
+through [PayPal](https://paypal.me/rafli23115). There is also a **Donate** button in NVDA's Settings,
+NVDA MCP category.
+
 ## More
 
 - [Using NVDA MCP](docs/using.md): updating, restarting the server, and what to do when something does not work.

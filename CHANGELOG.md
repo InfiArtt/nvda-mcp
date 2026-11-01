@@ -20,6 +20,8 @@ The first release for the NV Access Add-on Store and PyPI.
 - The add-on includes its license (GNU GPL v2), and its manifest links to the source code.
 - [docs/using.md](docs/using.md): day-to-day use, updating, and restarting the server after an update.
 - [CONTRIBUTING.md](CONTRIBUTING.md): building, testing and releasing.
+- Ways to support the project with a donation: a **Donate** button in the NVDA MCP settings, and links on
+  GitHub, PyPI and in the README.
 
 ### Changed
 

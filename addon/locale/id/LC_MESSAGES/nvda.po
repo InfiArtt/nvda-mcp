@@ -127,6 +127,10 @@ msgstr "Sal&in perintah penyiapan"
 msgid "Settings copied. Paste them into the client's MCP settings file."
 msgstr "Pengaturan disalin. Tempelkan ke file pengaturan MCP milik klien tersebut."
 
+#. Translators: A button in the NVDA MCP settings panel that opens the author's PayPal page in a web browser.
+msgid "&Donate to support NVDA MCP (opens PayPal)"
+msgstr "&Donasi untuk mendukung NVDA MCP (membuka PayPal)"
+
 #. Translators: Reported after copying a setup command in the NVDA MCP settings panel.
 msgid "Setup command copied. Paste it into a command prompt and press Enter."
 msgstr "Perintah penyiapan disalin. Tempelkan ke command prompt lalu tekan Enter."

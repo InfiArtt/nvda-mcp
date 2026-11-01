@@ -26,6 +26,7 @@ Homepage = "https://github.com/InfiArtt/nvda-mcp"
 Documentation = "https://github.com/InfiArtt/nvda-mcp/blob/main/docs/using.md"
 Changelog = "https://github.com/InfiArtt/nvda-mcp/blob/main/CHANGELOG.md"
 Issues = "https://github.com/InfiArtt/nvda-mcp/issues"
+Donate = "https://paypal.me/rafli23115"
 
 [project.scripts]
 nvda-mcp = "nvda_mcp.server:main"

@@ -9,6 +9,7 @@ that the ``nvda-mcp`` server connects to. See the add-on's readme for setup.
 """
 
 import os
+import webbrowser
 
 import addonHandler
 import api
@@ -36,6 +37,7 @@ addonHandler.initTranslation()
 
 # Translators: The name of the category of this add-on's commands in the Input Gestures dialog.
 SCRCAT_NVDA_MCP = _("NVDA MCP")
+DONATE_URL = "https://paypal.me/rafli23115"
 
 
 def _connectionFilePath() -> str:
@@ -128,6 +130,9 @@ class NvdaMcpSettingsPanel(SettingsPanel):
 		# Translators: A button in the NVDA MCP settings panel.
 		copyButton = helper.addItem(wx.Button(self, label=_("C&opy setup command")))
 		copyButton.Bind(wx.EVT_BUTTON, self.onCopySetup)
+		# Translators: A button in the NVDA MCP settings panel that opens the author's PayPal page in a web browser.
+		donateButton = helper.addItem(wx.Button(self, label=_("&Donate to support NVDA MCP (opens PayPal)")))
+		donateButton.Bind(wx.EVT_BUTTON, lambda event: webbrowser.open(DONATE_URL))
 
 	def onCopySetup(self, event: wx.CommandEvent) -> None:
 		client = CLIENTS[self.clientChoice.GetSelection()]
