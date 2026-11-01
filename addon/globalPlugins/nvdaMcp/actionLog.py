@@ -1,5 +1,5 @@
 # NVDA MCP add-on
-# Copyright (C) 2026 audiogaming23
+# Copyright (C) 2026 InfiArtt
 # This file is covered by the GNU General Public License.
 
 """A file that records every action an MCP client takes, so the user can check what was done.

@@ -163,5 +163,7 @@ kategori NVDA MCP.
 
 ## Lisensi
 
-Hak cipta (C) 2026 audiogaming23.
+Hak cipta (C) 2026 InfiArtt.
 NVDA MCP adalah perangkat lunak bebas di bawah [GNU General Public License, versi 2](../COPYING.txt) atau yang lebih baru.
+Perangkat lunak lain yang dipakainya beserta lisensinya tercantum di [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)
+(bahasa Inggris).

@@ -1,5 +1,5 @@
 # NVDA MCP add-on
-# Copyright (C) 2026 audiogaming23
+# Copyright (C) 2026 InfiArtt
 # This file is covered by the GNU General Public License.
 
 """The add-on's configuration section. Shared by the plugin and installTasks, so it imports nothing."""

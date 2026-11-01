@@ -80,7 +80,8 @@ or if a translation loses a `{placeholder}`.
 ## Releasing
 
 1. Set the new version in `pyproject.toml` and `addon/manifest.ini`, and give the *Unreleased* section of
-   `CHANGELOG.md` that version and the date.
+   `CHANGELOG.md` that version and the date. If dependencies changed, update `THIRD_PARTY_NOTICES.md`
+   (`pip list` in a fresh environment with only the server installed shows them).
 2. Merge that into `main` through a pull request.
 3. Tag the release and push the tag:
 

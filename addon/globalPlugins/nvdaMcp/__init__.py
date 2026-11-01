@@ -1,5 +1,5 @@
 # NVDA MCP add-on
-# Copyright (C) 2026 audiogaming23
+# Copyright (C) 2026 InfiArtt
 # This file is covered by the GNU General Public License.
 
 """Lets an MCP server, and through it an AI assistant, work with NVDA.

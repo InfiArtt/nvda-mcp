@@ -196,5 +196,6 @@ NVDA MCP category.
 
 ## License
 
-Copyright (C) 2026 audiogaming23.
+Copyright (C) 2026 InfiArtt.
 NVDA MCP is free software under the [GNU General Public License, version 2](COPYING.txt) or later.
+The software it uses and their licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
