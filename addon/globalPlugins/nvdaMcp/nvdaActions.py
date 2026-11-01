@@ -1000,9 +1000,16 @@ class NvdaActions:
 			# Translators: Says who wants to press keys, in the dialog asking to allow it.
 			# {client} is the name the program gives itself, such as Claude Code; NVDA cannot verify it.
 			who = _("An MCP client calling itself {client}").format(client=clientName)
+			# Translators: Title of the dialog asking to allow an MCP client to press keys.
+			# {client} is the name the program gives itself, such as Claude Code.
+			title = _("NVDA MCP: allow {client} to press keys?").format(client=clientName)
 		else:
 			# Translators: Says who wants to press keys, when the program gave no name.
 			who = _("An MCP client, such as an AI assistant,")
+			# Translators: Title of the dialog asking to allow an MCP client to press keys, when it gave no name.
+			title = _("NVDA MCP: allow an MCP client to press keys?")
+		# The title says who asks and what for, since NVDA always speaks it;
+		# the message is spoken only when reporting object descriptions is on (NVDA+B reads it anyway).
 		dialog = MessageDialog(
 			mainFrame,
 			# Translators: Asks the user whether an AI assistant may press keys through NVDA.
@@ -1013,8 +1020,7 @@ class NvdaActions:
 				"Keys go to whichever window is active.\n\n"
 				"Allow this until NVDA restarts?"
 			).format(who=who),
-			# Translators: Title of the dialog asking to allow an AI assistant to press keys.
-			_("NVDA MCP: allow key presses?"),
+			title,
 			dialogType=DialogType.WARNING,
 			buttons=DefaultButtonSet.YES_NO,
 		)
