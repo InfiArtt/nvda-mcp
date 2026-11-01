@@ -148,6 +148,12 @@ Daftar lengkap alat yang dilihat asisten ada di [README berbahasa Inggris](../RE
 Setiap aksi melaporkan apa yang diucapkan NVDA sesudahnya dan ke mana fokus berpindah, dan bisa menunggu
 pengumuman yang diharapkan, misalnya "terkirim" atau judul sebuah dialog.
 
+## Dukung NVDA MCP
+
+NVDA MCP gratis, dan dibuat di waktu luang. Jika add-on ini membantu Anda, Anda bisa mendukung pengembangannya
+dengan berdonasi melalui [PayPal](https://paypal.me/rafli23115). Ada juga tombol **Donasi** di Pengaturan NVDA,
+kategori NVDA MCP.
+
 ## Lainnya
 
 - [Memakai NVDA MCP](using.md) (bahasa Inggris): memperbarui, memulai ulang server, dan yang perlu dilakukan
@@ -157,5 +163,7 @@ pengumuman yang diharapkan, misalnya "terkirim" atau judul sebuah dialog.
 
 ## Lisensi
 
-Hak cipta (C) 2026 audiogaming23.
+Hak cipta (C) 2026 InfiArtt.
 NVDA MCP adalah perangkat lunak bebas di bawah [GNU General Public License, versi 2](../COPYING.txt) atau yang lebih baru.
+Perangkat lunak lain yang dipakainya beserta lisensinya tercantum di [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)
+(bahasa Inggris).

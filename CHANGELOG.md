@@ -20,9 +20,13 @@ The first release for the NV Access Add-on Store and PyPI.
 - The add-on includes its license (GNU GPL v2), and its manifest links to the source code.
 - [docs/using.md](docs/using.md): day-to-day use, updating, and restarting the server after an update.
 - [CONTRIBUTING.md](CONTRIBUTING.md): building, testing and releasing.
+- Ways to support the project with a donation: a **Donate** button in the NVDA MCP settings, and links on
+  GitHub, PyPI and in the README.
+- [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): the software NVDA MCP uses and their licenses.
 
 ### Changed
 
+- NVDA MCP is published by InfiArtt (info@infiartt.com).
 - The dialog asking to allow key presses names the MCP client asking, as the client calls itself,
   instead of always saying Claude. The action log records the client too.
 - When the add-on and the server don't match, the error says which one is older and how to update it.
