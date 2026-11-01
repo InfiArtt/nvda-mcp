@@ -1,0 +1,11 @@
+# The add-on follows NVDA's coding standards: tabs for indentation.
+extend = "../pyproject.toml"
+
+[format]
+indent-style = "tab"
+
+[lint.per-file-ignores]
+# _() is installed as a builtin by addonHandler.initTranslation().
+"**" = ["F821"]
+# NVDA names modules in lowerCamelCase (nvdaMcp, speechLog), per its coding standards.
+"*.py" = ["N999"]

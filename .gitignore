@@ -33,3 +33,9 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# This project
+# Compiled translations; build_addon.py makes them from the .po files.
+*.mo
+# NVDA documents downloaded for reference. They belong to their authors; see README.md for where they come from.
+docs/reference/

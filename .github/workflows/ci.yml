@@ -1,5 +1,4 @@
-# Checks every push to main and every pull request. Each step only runs
-# for the languages this repository actually contains.
+# Checks every push to main and every pull request.
 name: CI
 
 on:
@@ -18,61 +17,32 @@ concurrency:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    # The add-on calls Windows APIs, so the tests run on Windows.
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        # The oldest version the server supports, and the one NVDA 2026 runs add-ons with.
+        python-version: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@v7
 
-      # ---------------------------------------------------------------- Python
       - name: Set up Python
-        if: hashFiles('**/*.py') != ''
         uses: actions/setup-python@v7
         with:
-          python-version: "3.12" # Change to the version your project uses.
+          python-version: ${{ matrix.python-version }}
 
-      - name: Install Python dependencies
-        if: hashFiles('**/*.py') != ''
+      - name: Install the server with its development tools
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
-          if [ -f pyproject.toml ] && grep -q '^\[project\]' pyproject.toml; then
-            pip install -e ".[dev]" || pip install -e .
-          fi
+          pip install -e ".[dev]"
 
-      - name: Check that every Python file compiles
-        if: hashFiles('**/*.py') != ''
-        run: python -m compileall -q .
-
-      - name: Run the Python tests
-        if: hashFiles('**/*.py') != ''
+      - name: Lint
         run: |
-          if [ -d tests ] || [ -d test ]; then
-            pip install pytest
-            # Exit code 5 means no tests were found yet, which is not a failure.
-            pytest || [ $? -eq 5 ]
-          else
-            echo "No tests folder yet. Add tests/ and they will run here."
-          fi
+          ruff check .
+          ruff format --check .
 
-      # --------------------------------------------------------------- Node.js
-      - name: Set up Node.js
-        if: hashFiles('package.json') != ''
-        uses: actions/setup-node@v7
-        with:
-          node-version: lts/*
+      - name: Run the tests
+        run: pytest
 
-      - name: Install Node.js dependencies
-        if: hashFiles('package.json') != ''
-        run: |
-          if [ -f pnpm-lock.yaml ]; then corepack enable && pnpm install --frozen-lockfile
-          elif [ -f yarn.lock ]; then corepack enable && yarn install --immutable
-          elif [ -f package-lock.json ]; then npm ci
-          else npm install
-          fi
-
-      - name: Lint, build and test
-        if: hashFiles('package.json') != ''
-        run: |
-          npm run lint --if-present
-          npm run build --if-present
-          npm test --if-present
+      - name: Build the add-on
+        run: python build_addon.py
