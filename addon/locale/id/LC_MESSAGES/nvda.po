@@ -82,9 +82,14 @@ msgstr ""
 "\n"
 "Izinkan sampai NVDA dimulai ulang?"
 
-#. Translators: Title of the dialog asking to allow an AI assistant to press keys.
-msgid "NVDA MCP: allow key presses?"
-msgstr "NVDA MCP: izinkan penekanan tombol?"
+#. Translators: Title of the dialog asking to allow an MCP client to press keys.
+#. {client} is the name the program gives itself, such as Claude Code.
+msgid "NVDA MCP: allow {client} to press keys?"
+msgstr "NVDA MCP: izinkan {client} menekan tombol?"
+
+#. Translators: Title of the dialog asking to allow an MCP client to press keys, when it gave no name.
+msgid "NVDA MCP: allow an MCP client to press keys?"
+msgstr "NVDA MCP: izinkan klien MCP menekan tombol?"
 
 #. Translators: A text field in the NVDA MCP settings panel.
 msgid "Only let MCP clients control these &applications (comma separated, empty for all):"

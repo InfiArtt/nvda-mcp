@@ -41,6 +41,10 @@ The first release for the NV Access Add-on Store and PyPI.
   such as a browser's live region, as "NVDA said around then", instead of "NVDA said nothing".
 - `nvda_preview_speech` with `target: "window"` always includes the focused control, searches the web document
   first, and says in its first line when the search stopped before checking every control.
+- The key press dialog's title says which client is asking, such as "NVDA MCP: allow Claude Code to press keys?".
+  NVDA speaks the dialog's message only when reporting object descriptions is on, so users who turned it off
+  heard only "allow key presses?" and the buttons.
+- `nvda_get_settings` no longer hides settings whose names merely contain "key", such as `reportKeyboardShortcuts`.
 
 ## [0.3.0] - 2026-11-02
 

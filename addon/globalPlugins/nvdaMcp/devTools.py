@@ -53,7 +53,8 @@ MAX_PREVIEW_OBJECTS = 100
 MAX_SCRIPTS = 300
 OUTPUT_KINDS = ("beep", "sound", "braille", "speechCanceled")
 # Settings whose names look like they hold secrets, such as an add-on's API key, are never sent.
-_SECRET_SETTING = re.compile(r"key|token|password|secret|credential", re.IGNORECASE)
+# "Key" counts only at the end of a name (apiKey, licenseKey), so reportKeyboardShortcuts stays visible.
+_SECRET_SETTING = re.compile(r"keys?$|token|password|secret|credential", re.IGNORECASE)
 
 
 def _short(value: Any) -> str:
