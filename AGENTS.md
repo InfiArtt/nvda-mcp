@@ -13,7 +13,8 @@ It has two parts that share one version number and must be released together:
 - `src/nvda_mcp/`: the MCP server (Python 3.11 or later, official MCP Python SDK), which talks to the bridge.
   It follows PEP 8.
 
-[README.md](README.md) describes the tools and settings; [docs/using.md](docs/using.md) covers day-to-day use and updating.
+[README.md](README.md) is for people installing the add-on; [docs/using.md](docs/using.md) covers day-to-day use
+and updating; [CONTRIBUTING.md](CONTRIBUTING.md) covers building, testing and releasing.
 
 ## Commands
 
@@ -33,7 +34,9 @@ CI (`.github/workflows/ci.yml`) runs all of these on Windows. Run the tests befo
 - **Don't push to `main`.** Work on a branch and open a pull request.
 - **Ask first** before anything that publishes or can't easily be undone: merging, releases, tags, deployments, package uploads, force-pushing, deleting branches or repositories.
 - **Never post in other people's repositories** (issues, comments, pull requests, submissions) on the team's behalf. Some communities forbid AI tools from interacting with them; NV Access, for example, bans them from the NVDA Add-on Store repository. Prepare the facts and leave the posting to a person.
-- **Be transparent about AI involvement.** Keep `Co-Authored-By` trailers in commits, and don't disguise AI-written text as written by a person.
+- **No AI attribution in this repository.** The maintainer publishes NVDA MCP under their own name:
+  don't add `Co-Authored-By` trailers, "generated with" footers or similar lines to commits, pull requests,
+  the README or other documentation. (This replaces the organization's default rule for this repository.)
 - Keep changes focused, and match the existing code style, naming and comment density.
 - Write code, comments and commit messages in English, with Conventional Commits prefixes (`feat:`, `fix:`, `docs:`, `test:`, `ci:`, `refactor:`). Talk to the team in the language they use with you, often Indonesian.
 
@@ -50,6 +53,9 @@ CI (`.github/workflows/ci.yml`) runs all of these on Windows. Run the tests befo
 - **Translations.** A test fails when a translatable string has no Indonesian translation in
   `addon/locale/id/LC_MESSAGES/nvda.po`. The `.mo` files are built by `build_addon.py`; don't commit them.
 - **Versions** live in `pyproject.toml` and `addon/manifest.ini` and must match. Record changes in `CHANGELOG.md`.
+  Pushing a `v*` tag runs `.github/workflows/release.yml`, which publishes to PyPI: ask before tagging.
+- **Help pages.** `build_addon.py` makes the add-on's help from `README.md` and `docs/README.id.md`;
+  keep the Indonesian one in step when the English README changes.
 - **Add-on Store.** Submissions to the NV Access Add-on Store are made by a person. Prepare the text and files;
   never open issues or pull requests in `nvaccess/addon-datastore`.
 - `docs/reference/` (git-ignored) may hold local copies of NVDA's documentation; README.md links to the originals.

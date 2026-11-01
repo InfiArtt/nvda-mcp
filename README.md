@@ -1,20 +1,143 @@
 # NVDA MCP
 
-Lets AI assistants such as Claude work with the [NVDA](https://www.nvaccess.org) screen reader
-through the [Model Context Protocol](https://modelcontextprotocol.io):
-read what NVDA reads, hear what it speaks, and, if you allow it, press keys.
+NVDA MCP connects AI assistants to the [NVDA](https://www.nvaccess.org) screen reader through the
+[Model Context Protocol](https://modelcontextprotocol.io) (MCP).
+The assistant can read what NVDA reads and hear what NVDA says. If you allow it, it can also press keys,
+and you hear every step through NVDA, as if you had pressed them yourself.
 
-It has two parts:
+## Why it exists
+
+AI assistants can now do things on a computer, not just answer questions. Most of them work by looking at
+screenshots and clicking on what they see. For someone who uses a screen reader, that has two problems:
+
+- **You can't follow what the assistant does.** It clicks things you never hear about, in places your
+  screen reader may not even show you.
+- **A screenshot is not what you experience.** What matters to a screen reader user is which control has
+  focus, its name, role and state, and what NVDA says about it. A picture of the screen leaves most of that out.
+
+NVDA already knows all of this, because it is how you use your computer. NVDA MCP gives the assistant the same
+view: the focused control, the accessibility tree, the text of a document or web page, and exactly what NVDA
+said. When the assistant acts, it uses the keyboard through NVDA, the way you would, and NVDA announces the result.
+You and the assistant work from the same information, and you stay in control.
+
+## What it is useful for
+
+For people who use NVDA:
+
+- **"What did NVDA just say?"** The assistant reads NVDA's speech history, so you can ask about something
+  you missed, or ask for a summary of a long dialog.
+- **Getting through confusing or inaccessible applications.** Ask what is in a window, where a control is,
+  or why a button has no name, and get an answer based on what NVDA actually sees.
+- **Doing repetitive tasks.** The assistant can move through an application with the keyboard,
+  type text, switch windows, and wait for something to happen, such as a chat reply.
+- **Learning.** Ask which NVDA commands work where you are, or what a key does here.
+
+For developers and testers:
+
+- **See what NVDA announces** for each control without moving focus, and find unlabeled or silent controls.
+- **Audit the tab order** of a dialog or page: duplicate names, keyboard traps, controls NVDA says nothing about.
+- **Find out why NVDA is silent**: trace the events NVDA handles and what it said for each one.
+- **Regression tests**: record what NVDA says through a series of key presses, and compare later runs with it.
+- **Develop NVDA add-ons faster**: read NVDA's log, see developer info like NVDA+F1, and reload add-on code.
+
+## Who it is for
+
+- **Blind and low-vision people** who use NVDA and want an AI assistant that works with their screen reader
+  instead of around it.
+- **NVDA add-on developers**, who can test what their add-on makes NVDA say without doing every step by hand.
+- **Developers of Windows applications and websites**, who want to check their work with a real screen reader.
+- **Accessibility testers, auditors and QA teams**, who need repeatable checks of what a screen reader announces.
+- **Trainers and support staff** who help screen reader users and want to understand what they hear.
+
+## What you need
+
+- Windows with NVDA 2026.3 or later.
+- An AI assistant that supports MCP, such as Claude Code, Claude Desktop, Codex CLI, Cursor or VS Code.
+- [uv](https://docs.astral.sh/uv/), which downloads and runs the NVDA MCP server for you.
+  If you already have Python 3.11 or later, you can use pip or pipx instead.
+
+NVDA MCP has two parts: this add-on, and a small program called the **nvda-mcp server**, which your assistant
+starts. The add-on comes from NVDA's Add-on Store; the server comes from the Python Package Index (PyPI).
+Both are free and open source.
+
+## Setting it up
+
+1. **Install the add-on.** In NVDA, open Tools, then Add-on Store. Find NVDA MCP, install it and restart NVDA.
+2. **Install uv**, if you don't have it. Open a command prompt and run:
+
+   ```
+   winget install --id=astral-sh.uv -e
+   ```
+
+   Close the command prompt and open a new one, so it finds uv.
+3. **Connect your assistant.** In NVDA, open Settings (NVDA+N, Preferences, Settings), then the
+   **NVDA MCP** category. Choose your assistant under *Set up this MCP client* and press
+   **Copy setup command**.
+   - For Claude Code or Codex CLI, paste the command into a command prompt and press Enter.
+   - For Claude Desktop, Cursor and other assistants that use a settings file, paste the settings into
+     that file. For Claude Desktop, it is `claude_desktop_config.json` (Settings, Developer, Edit Config).
+
+   The command is like `claude mcp add --scope user nvda -- uvx nvda-mcp==0.4.0`: it tells your assistant to
+   run the server version that matches your add-on.
+
+Start your assistant and ask it something like "what has focus in NVDA?". It answers without pressing anything.
+
+### With pip or pipx instead of uv
 
 ```
-Claude Code ⇄ (stdio) nvda-mcp server ⇄ (HTTP on 127.0.0.1, token) NVDA add-on ⇄ NVDA
+pipx install nvda-mcp
+claude mcp add --scope user nvda -- nvda-mcp
 ```
 
-- **`addon/`**: the NVDA add-on (NVDA 2026.3 or later). It records everything NVDA speaks
-  and runs a small bridge that only accepts local, authenticated requests.
-- **`src/nvda_mcp/`**: the MCP server, built on the official MCP Python SDK.
+Use the same version as the add-on, and upgrade both together. With plain pip, run `python -m nvda_mcp` if the
+`nvda-mcp` command is not found.
+
+## Safety
+
+Reading is always allowed. Everything that acts on your computer is **off until you turn it on**:
+pressing keys, typing, switching windows, activating controls, moving through web pages,
+running NVDA commands and reloading add-ons.
+
+In NVDA's Settings, **NVDA MCP** category:
+
+- **Let MCP clients, such as AI assistants, connect to NVDA** (on by default).
+- **Allow MCP clients to press keys** (off by default).
+- **Ask before the first key press after NVDA starts** (on by default). NVDA asks you, with **No** focused,
+  and names the program asking, as it calls itself.
+- **Only let MCP clients control these applications** (empty by default, meaning all).
+  For example `notepad, winword`. Anything else is refused.
+- **Keep a log of every action MCP clients take** (on by default), in `%APPDATA%\nvda\nvdaMcp\actions.log`.
+- **Number of spoken messages to remember** (500 by default).
+
+Commands in Input Gestures, NVDA MCP category (no keys assigned by default):
+
+- Report whether NVDA MCP is running and whether it may press keys.
+- Stop MCP clients from pressing keys until you approve again.
+- Open the log of actions MCP clients have taken.
+
+How the connection is protected:
+
+- The add-on listens only on your own computer (127.0.0.1), on a random port.
+- Every request needs a secret token, made new each time NVDA starts, stored where only your Windows account
+  can read it.
+- Requests from web pages are refused.
+- Nothing works on secure screens (sign-in, UAC), and requests are refused while Windows is locked.
+- The settings live in NVDA's base configuration, so a configuration profile cannot turn key presses on.
+
+## Privacy
+
+The add-on itself sends nothing over the internet. But **what your assistant reads goes to the assistant**,
+and most assistants send it to their provider's servers. That can include the text on your screen,
+what NVDA says, the contents of documents and chat windows, and anything NVDA reads aloud while you type.
+
+- Before you work with something private, such as banking, passwords or personal messages,
+  close your assistant or turn off *Let MCP clients connect* in NVDA's settings.
+- NVDA's speech history is kept in memory only, and cleared when NVDA restarts.
+- The action log stays on your computer.
 
 ## Tools
+
+The assistant sees these tools:
 
 | Tool | What it does |
 |---|---|
@@ -28,7 +151,7 @@ Claude Code ⇄ (stdio) nvda-mcp server ⇄ (HTTP on 127.0.0.1, token) NVDA add-
 | `nvda_wait_for_speech` | Wait until NVDA says something, such as a chat reply |
 | `nvda_list_windows` | Open application windows, including ones on other virtual desktops if asked |
 | `nvda_speak` | Say something through NVDA's speech and braille |
-| `nvda_press_keys` | Press keys, optionally holding modifiers (alt held while tab cycles Alt+Tab), then report what NVDA said and where focus went |
+| `nvda_press_keys` | Press keys, optionally holding modifiers, then report what NVDA said and where focus went |
 | `nvda_type_text` | Type a line of text in any language, emoji included, without using the clipboard |
 | `nvda_activate_window` | Bring a window to the front by title or handle |
 | `nvda_focus_object` | Move focus to a control found with `nvda_find_objects` |
@@ -55,98 +178,17 @@ For developers of add-ons and accessible applications:
 | `nvda_get_settings` | Read NVDA's settings as they apply now; values that look like secrets are hidden |
 | `nvda_run_scenario` | Run keys and typing, record what NVDA said after each step, and compare with a baseline file |
 
-`nvda_press_keys`, `nvda_type_text`, `nvda_activate_window`, `nvda_focus_object`, `nvda_activate_object`,
-`nvda_set_document_mode`, `nvda_find_in_page`, `nvda_move_to_element`, `nvda_audit_focus_order`,
-`nvda_run_script`, `nvda_reload_plugins` and `nvda_run_scenario` act on your computer. They are off by default.
+Every action reports what NVDA said afterwards and where focus went, and can wait for an expected announcement,
+such as "sent" or a dialog's title.
 
-Every action tool reports what NVDA said afterwards and where focus went. Pass `until_speech` to keep
-listening until NVDA says something you expect, such as "sent" or a dialog's title; the result says
-whether it was heard. In web pages, `nvda_get_focus` reports `documentMode` (browse or focus).
+## More
 
-See [docs/using.md](docs/using.md) for using it day to day: allowing key presses, updating,
-restarting the server after an update, and what to do when something does not work.
-See [CHANGELOG.md](CHANGELOG.md) for what changed in each version.
+- [Using NVDA MCP](docs/using.md): updating, restarting the server, and what to do when something does not work.
+- [What's new](CHANGELOG.md) in each version.
+- [Contributing](CONTRIBUTING.md): building, testing and releasing.
+- Questions and bug reports: [GitHub issues](https://github.com/InfiArtt/nvda-mcp/issues).
 
-## Install
+## License
 
-1. **Build and install the add-on**
-
-   ```
-   python build_addon.py
-   ```
-
-   Open `dist/nvdaMcp-0.3.0.nvda-addon`, accept the installation, and restart NVDA.
-
-2. **Install the server** (Python 3.11 or later)
-
-   ```
-   python -m venv .venv
-   .venv\Scripts\python -m pip install -e .
-   ```
-
-3. **Add it to Claude Code**
-
-   ```
-   claude mcp add --scope user nvda -- F:\amusements\nvda-mcp\.venv\Scripts\nvda-mcp.exe
-   ```
-
-   For a portable copy of NVDA, also pass
-   `--env NVDA_MCP_CONNECTION_FILE=<portable folder>\userConfig\nvdaMcp\connection.json`.
-
-## Settings and safety
-
-NVDA menu → Preferences → Settings → **NVDA MCP**:
-
-- **Let MCP clients such as Claude connect to NVDA** (on by default).
-- **Allow MCP clients to press keys** (off by default).
-- **Ask before the first key press after NVDA starts** (on by default).
-  NVDA shows a Yes/No dialog, with No focused, the first time a client tries to press keys.
-- **Only let MCP clients control these applications** (empty by default, meaning all).
-  Application names as NVDA reports them, separated by commas, for example `mwmod, notepad`.
-  Key presses, typing and activating controls are refused in any other application;
-  switching windows is allowed only to these applications.
-- **Keep a log of every action MCP clients take** (on by default).
-  Each key press, typed text, window switch and activated control is written to
-  `%APPDATA%\nvda\nvdaMcp\actions.log` with the time and window. At 1 MB it moves to `actions.log.1`.
-- **Number of spoken messages to remember** (500 by default).
-
-Commands in Input Gestures → NVDA MCP (no keys assigned by default):
-
-- *Report whether NVDA MCP is running and whether it may press keys.*
-- *Stop MCP clients from pressing keys until you approve again.* Works even when confirmation is turned off.
-- *Open the log of actions MCP clients have taken.*
-
-How the bridge is protected:
-
-- It listens on 127.0.0.1 only, on a random port.
-- Every request needs a random token, made fresh each time NVDA starts.
-  The port and token are in `%APPDATA%\nvda\nvdaMcp\connection.json`, which only your Windows account can read.
-- Requests from web pages (with an `Origin` header) or with a non-loopback `Host` are refused.
-- Nothing runs on secure screens (sign-in, UAC), and requests are refused while Windows is locked.
-- Settings are stored in NVDA's base configuration, so profiles cannot turn key presses on.
-
-## Development
-
-```
-.venv\Scripts\python -m pip install -e ".[dev]"
-.venv\Scripts\python -m pytest
-.venv\Scripts\ruff check .
-.venv\Scripts\ruff format --check .
-```
-
-The tests run the real bridge and the real MCP server against a scripted window, so they need no NVDA.
-The add-on code follows NVDA's coding standards (tabs, camelCase, translatable strings with translator comments);
-the server follows PEP 8.
-
-This project follows these NVDA documents:
-the [NVDA Developer Guide](https://www.nvaccess.org/files/nvda/documentation/developerGuide.html),
-[What's New](https://www.nvaccess.org/files/nvda/documentation/changes.html),
-the community [Add-on Development Guide](https://github.com/nvdaaddons/DevGuide/wiki/NVDA-Add-on-Development-Guide)
-and NVDA's [coding standards](https://github.com/nvaccess/nvda/blob/master/projectDocs/dev/codingStandards.md).
-Keep local copies in `docs/reference/` if you like; git ignores that folder.
-
-### Translations
-
-User-facing strings are in English and wrapped in `_()`. The Indonesian translation is
-`addon/locale/id/LC_MESSAGES/nvda.po`; `build_addon.py` compiles it.
-A test fails if a translatable string has no translation.
+Copyright (C) 2026 audiogaming23.
+NVDA MCP is free software under the [GNU General Public License, version 2](COPYING.txt) or later.

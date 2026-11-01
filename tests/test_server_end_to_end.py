@@ -3,6 +3,7 @@
 import pytest
 from bridge import Bridge, BridgeError
 from mcp import Client
+from mcp.types import Implementation
 from speechLog import SpeechLog
 
 from nvda_mcp import server
@@ -35,6 +36,7 @@ class FakeWindow:
             raise BridgeError("controlDisabled", "Pressing keys is turned off.")
         start = self.speech.lastId
         self.held = params.get("hold")
+        self.client_name = params.get("clientName")
         for key in params["keys"]:
             step = -1 if key == "shift+tab" else 1
             self.index = (self.index + step) % len(self.controls)
@@ -223,6 +225,21 @@ async def test_press_keys_reports_speech_and_new_focus(connect):
         result = await client.call_tool("nvda_press_keys", {"keys": ["tab"]})
     assert "NVDA said: Cancel button" in text_of(result)
     assert "## Focus now: Cancel (button)" in text_of(result)
+
+
+async def test_actions_tell_nvda_which_client_asks(connect):
+    window = connect(FakeWindow([("OK", "button"), ("Cancel", "button")]))
+    async with Client(server.mcp) as client:
+        await client.call_tool("nvda_press_keys", {"keys": ["tab"]})
+    assert isinstance(window.client_name, str) and window.client_name
+
+
+def test_client_names_are_made_safe_to_show():
+    name = server.client_display_name
+    assert name(Implementation(name="claude-code", title="Claude Code", version="1")) == "Claude Code"
+    assert name(Implementation(name="  my\x07\nclient  ", version="1")) == "my client"
+    assert name(Implementation(name="x" * 200, version="1")) == "x" * server.MAX_CLIENT_NAME_CHARS
+    assert name(None) is None
 
 
 async def test_speech_history_filters_and_tracks_ids(connect):

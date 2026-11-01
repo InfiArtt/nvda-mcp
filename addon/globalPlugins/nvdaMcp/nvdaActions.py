@@ -903,8 +903,9 @@ class NvdaActions:
 		"""
 		settleSeconds = float(params.get("settleMs", 400)) / 1000
 		timeoutSeconds = float(params.get("timeoutMs", 3000)) / 1000
+		clientName = params.get("clientName") if isinstance(params.get("clientName"), str) else None
 		with self._controlLock:
-			self._ensureControlAllowed()
+			self._ensureControlAllowed(clientName)
 			foreground = wxCallOnMain(api.getForegroundObject)
 			window = wxCallOnMain(_safeGet, foreground, "name") if foreground else None
 			if targetApp is None:
@@ -913,7 +914,8 @@ class NvdaActions:
 				self._ensureAppAllowed(targetApp)
 			if config.conf[CONFIG_SECTION]["logActions"]:
 				try:
-					self._actionLog.record(action, window, app=targetApp, **details)
+					client = {"client": clientName} if clientName else {}
+					self._actionLog.record(action, window, app=targetApp, **client, **details)
 				except OSError:
 					log.error("NVDA MCP could not write its action log", exc_info=True)
 			startId = self._speechLog.lastId
@@ -965,7 +967,10 @@ class NvdaActions:
 			gestures.append(gesture)
 		return gestures
 
-	def _ensureControlAllowed(self) -> None:
+	def _ensureControlAllowed(self, clientName: str | None = None) -> None:
+		"""
+		:param clientName: The name the MCP client gave itself, such as "Claude Code", to show the user.
+		"""
 		sectionConfig = config.conf[CONFIG_SECTION]
 		if not sectionConfig["allowControl"]:
 			raise BridgeError(
@@ -976,9 +981,10 @@ class NvdaActions:
 			return
 		if not (sectionConfig["confirmControl"] or self._wasControlRevoked):
 			return
-		if not wxCallOnMain(self._askForControlApproval):
+		if not wxCallOnMain(self._askForControlApproval, clientName):
 			raise BridgeError(
-				"controlDenied", "The user declined to let Claude press keys. Do not retry unless they ask."
+				"controlDenied",
+				"The user declined to let this client press keys. Do not retry unless they ask.",
 			)
 		self._isControlApprovedThisSession = True
 		self._wasControlRevoked = False
@@ -986,19 +992,27 @@ class NvdaActions:
 		time.sleep(FOCUS_RETURN_DELAY_SECONDS)
 
 	@staticmethod
-	def _askForControlApproval() -> bool:
+	def _askForControlApproval(clientName: str | None) -> bool:
 		from gui import mainFrame
 		from gui.message import DefaultButtonSet, DialogType, MessageDialog, ReturnCode
 
+		if clientName:
+			# Translators: Says who wants to press keys, in the dialog asking to allow it.
+			# {client} is the name the program gives itself, such as Claude Code; NVDA cannot verify it.
+			who = _("An MCP client calling itself {client}").format(client=clientName)
+		else:
+			# Translators: Says who wants to press keys, when the program gave no name.
+			who = _("An MCP client, such as an AI assistant,")
 		dialog = MessageDialog(
 			mainFrame,
 			# Translators: Asks the user whether an AI assistant may press keys through NVDA.
+			# {who} is who is asking, such as "An MCP client calling itself Claude Code".
 			_(
-				"Claude wants to press keys on this computer through NVDA, "
+				"{who} wants to press keys on this computer through NVDA, "
 				"for example to move through an application with Tab. "
 				"Keys go to whichever window is active.\n\n"
 				"Allow this until NVDA restarts?"
-			),
+			).format(who=who),
 			# Translators: Title of the dialog asking to allow an AI assistant to press keys.
 			_("NVDA MCP: allow key presses?"),
 			dialogType=DialogType.WARNING,

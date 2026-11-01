@@ -1,5 +1,6 @@
 import ast
 import gettext
+import re
 import zipfile
 
 from conftest import ROOT
@@ -32,8 +33,7 @@ def test_every_translatable_string_has_an_indonesian_translation():
 
 def test_translations_keep_format_placeholders():
     for msgid, msgstr in build_addon.parse_po(INDONESIAN_PO).items():
-        for placeholder in ("{port}", "{control}"):
-            assert (placeholder in msgid) == (placeholder in msgstr), msgid
+        assert set(re.findall(r"\{\w+\}", msgid)) == set(re.findall(r"\{\w+\}", msgstr)), msgid
 
 
 def test_built_mo_file_is_readable_by_gettext(tmp_path):
@@ -54,6 +54,16 @@ def test_package_contains_plugin_manifest_and_translations():
         "globalPlugins/nvdaMcp/__init__.py",
         "locale/id/LC_MESSAGES/nvda.mo",
         "locale/id/manifest.ini",
+        "doc/en/readme.html",
+        "doc/id/readme.html",
+        "COPYING.txt",
     } <= names
     assert not any(name.endswith((".po", ".pyc", "ruff.toml")) for name in names)
     assert not any(part.startswith(".") for name in names for part in name.split("/"))
+
+
+def test_help_pages_link_to_repository_files_on_the_web():
+    page = build_addon.help_page(ROOT / "README.md", "en", "NVDA MCP", "https://example.org/repo")
+    assert page.startswith("<!DOCTYPE html>") and '<html lang="en">' in page
+    assert 'href="docs/' not in page and 'href="CHANGELOG.md' not in page
+    assert 'href="https://example.org/repo/blob/main/' in page

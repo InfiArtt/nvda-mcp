@@ -17,7 +17,9 @@ def running_bridge(tmp_path):
         raise BridgeError("controlDenied", "No.")
 
     handlers = {"echo": lambda params: params, "fail": fail, "refuse": refuse}
-    bridge = Bridge(handlers, str(tmp_path / "nvdaMcp" / "connection.json"), onError=errors.append)
+    bridge = Bridge(
+        handlers, str(tmp_path / "nvdaMcp" / "connection.json"), onError=errors.append, addonVersion="1.2.3"
+    )
     bridge.start()
     yield bridge, errors
     bridge.stop()
@@ -37,6 +39,7 @@ def test_connection_file_is_published_and_removed(running_bridge, tmp_path):
         "port": bridge.port,
         "token": bridge.token,
         "pid": os.getpid(),
+        "addonVersion": "1.2.3",
     }
     assert [p.name for p in path.parent.iterdir()] == ["connection.json"]
     bridge.stop()

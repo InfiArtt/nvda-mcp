@@ -2,7 +2,7 @@
 # Copyright (C) 2026 audiogaming23
 # This file is covered by the GNU General Public License.
 
-"""Lets an MCP server, and through it an AI assistant such as Claude, work with NVDA.
+"""Lets an MCP server, and through it an AI assistant, work with NVDA.
 
 The plugin captures what NVDA speaks and runs a loopback-only bridge
 that the ``nvda-mcp`` server connects to. See the add-on's readme for setup.
@@ -11,6 +11,7 @@ that the ``nvda-mcp`` server connects to. See the add-on's readme for setup.
 import os
 
 import addonHandler
+import api
 import config
 import globalPluginHandler
 import globalVars
@@ -28,6 +29,7 @@ from .bridge import Bridge
 from .configSpec import CONFIG_SECTION, CONFIG_SPEC
 from .devTools import DevTools
 from .nvdaActions import NvdaActions
+from .setupCommands import CLIENTS, setupText
 from .speechLog import SpeechLog, sequenceToText
 
 addonHandler.initTranslation()
@@ -43,6 +45,22 @@ def _connectionFilePath() -> str:
 
 def _actionLogPath() -> str:
 	return os.path.join(globalVars.appArgs.configPath, "nvdaMcp", "actions.log")
+
+
+def _addonVersion() -> str:
+	return addonHandler.getCodeAddon().version
+
+
+def _clientLabels() -> dict[str, str]:
+	return {
+		# Translators: An MCP client in the NVDA MCP settings panel's list of clients to set up.
+		"claudeCode": _("Claude Code"),
+		# Translators: An MCP client in the NVDA MCP settings panel's list of clients to set up.
+		"codex": _("Codex CLI"),
+		# Translators: In the NVDA MCP settings panel's list of clients to set up:
+		# clients configured with a JSON settings file instead of a command.
+		"json": _("Claude Desktop, Cursor and others (JSON settings)"),
+	}
 
 
 def _ensureConfigSection() -> None:
@@ -67,7 +85,7 @@ class NvdaMcpSettingsPanel(SettingsPanel):
 		helper = guiHelper.BoxSizerHelper(self, sizer=settingsSizer)
 		self.enabledCheckBox = helper.addItem(
 			# Translators: A checkbox in the NVDA MCP settings panel.
-			wx.CheckBox(self, label=_("&Let MCP clients such as Claude connect to NVDA")),
+			wx.CheckBox(self, label=_("&Let MCP clients, such as AI assistants, connect to NVDA")),
 		)
 		self.enabledCheckBox.SetValue(sectionConfig["enabled"])
 		self.allowControlCheckBox = helper.addItem(
@@ -99,6 +117,28 @@ class NvdaMcpSettingsPanel(SettingsPanel):
 			max=5000,
 			initial=sectionConfig["speechHistorySize"],
 		)
+		labels = _clientLabels()
+		self.clientChoice = helper.addLabeledControl(
+			# Translators: A list in the NVDA MCP settings panel, choosing the program to set up.
+			_("Set up this MCP &client:"),
+			wx.Choice,
+			choices=[labels[client] for client in CLIENTS],
+		)
+		self.clientChoice.SetSelection(0)
+		# Translators: A button in the NVDA MCP settings panel.
+		copyButton = helper.addItem(wx.Button(self, label=_("C&opy setup command")))
+		copyButton.Bind(wx.EVT_BUTTON, self.onCopySetup)
+
+	def onCopySetup(self, event: wx.CommandEvent) -> None:
+		client = CLIENTS[self.clientChoice.GetSelection()]
+		if not api.copyToClip(setupText(client, _addonVersion())):
+			return
+		if client == "json":
+			# Translators: Reported after copying an MCP client's JSON settings in the NVDA MCP settings panel.
+			ui.message(_("Settings copied. Paste them into the client's MCP settings file."))
+		else:
+			# Translators: Reported after copying a setup command in the NVDA MCP settings panel.
+			ui.message(_("Setup command copied. Paste it into a command prompt and press Enter."))
 
 	def onSave(self) -> None:
 		sectionConfig = config.conf[CONFIG_SECTION]
@@ -158,7 +198,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def _startBridge(self) -> None:
 		handlers = {**self._actions.handlers(), **self._devTools.handlers()}
-		bridge = Bridge(handlers, _connectionFilePath(), onError=log.error)
+		bridge = Bridge(handlers, _connectionFilePath(), onError=log.error, addonVersion=_addonVersion())
 		try:
 			bridge.start()
 		except OSError:
