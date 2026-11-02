@@ -6,6 +6,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 The add-on (`addon/manifest.ini`) and the server (`pyproject.toml`) share one version number;
 install them together.
 
+## [Unreleased]
+
+### Fixed
+
+- `nvda_activate_window` now brings NVDA along when Windows switches virtual desktops to reach the window.
+  Windows sends no event then, so NVDA kept reading the old window and the result showed the old focus.
+
 ## [1.0.0] - 2026-11-02
 
 First release, on the NV Access Add-on Store and PyPI.
