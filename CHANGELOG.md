@@ -6,7 +6,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 The add-on (`addon/manifest.ini`) and the server (`pyproject.toml`) share one version number;
 install them together.
 
-## [1.0.0] - Unreleased
+## [1.0.0] - 2026-11-02
 
 First release, on the NV Access Add-on Store and PyPI.
 
