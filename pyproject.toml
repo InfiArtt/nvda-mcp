@@ -1,6 +1,6 @@
 [project]
 name = "nvda-mcp"
-version = "0.4.0"
+version = "1.0.0"
 description = "MCP server that lets AI assistants work with the NVDA screen reader through the NVDA MCP add-on."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -9,7 +9,7 @@ license-files = ["COPYING.txt", "THIRD_PARTY_NOTICES.md"]
 authors = [{ name = "InfiArtt", email = "info@infiartt.com" }]
 keywords = ["nvda", "screen reader", "accessibility", "mcp", "model context protocol", "ai assistant"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Win32 (MS Windows)",
     "Intended Audience :: Developers",
     "Intended Audience :: End Users/Desktop",

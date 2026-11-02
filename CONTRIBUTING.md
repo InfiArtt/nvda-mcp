@@ -86,8 +86,8 @@ or if a translation loses a `{placeholder}`.
 3. Tag the release and push the tag:
 
    ```
-   git tag v0.4.0
-   git push origin v0.4.0
+   git tag v1.0.0
+   git push origin v1.0.0
    ```
 
    The release workflow checks that the tag matches both versions, runs the tests, builds the add-on and the
