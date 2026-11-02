@@ -19,6 +19,7 @@ import api
 import appModuleHandler
 import config
 import controlTypes
+import eventHandler
 import inputCore
 import keyboardHandler
 import queueHandler
@@ -27,12 +28,14 @@ import synthDriverHandler
 import textInfos
 import ui
 import versionInfo
+import winUser
 from browseMode import BrowseModeTreeInterceptor, reportPassThrough
 from cursorManager import CursorManager
 from gui.guiHelper import wxCallOnMain
 from keyboardHandler import KeyboardInputGesture, ignoreInjection
 from logHandler import log
 from NVDAObjects import NVDAObject
+from NVDAObjects.IAccessible import getNVDAObjectFromEvent
 from treeInterceptorHandler import TreeInterceptor
 from utils.security import isLockScreenModeActive
 
@@ -53,6 +56,8 @@ MAX_TREE_NESTING = 100
 MAX_TEXT_LINES = 5000
 DELAY_BETWEEN_KEYS_SECONDS = 0.05
 FOCUS_RETURN_DELAY_SECONDS = 0.5
+# How long NVDA gets to notice a window brought to the front before it is told.
+FOREGROUND_CATCH_UP_SECONDS = 1.0
 # Lets NVDA's keyboard hook see injected keys while it is still told to ignore them.
 HOLD_KEY_DELAY_SECONDS = 0.05
 # How long to wait for an NVDA command run by a key press before pressing the next key.
@@ -346,6 +351,29 @@ def _requireBrowseModeDocument() -> BrowseModeTreeInterceptor:
 def _appNameOf(obj: NVDAObject | None) -> str | None:
 	appModule = _safeGet(obj, "appModule") if obj is not None else None
 	return appModule.appName if appModule else None
+
+
+def _isNvdaForeground(hwnd: int) -> bool:
+	return _safeGet(api.getForegroundObject(), "windowHandle") == hwnd
+
+
+def _reportForeground(hwnd: int) -> None:
+	"""Tell NVDA about the control focused in a window it missed coming to the front.
+
+	Windows sends no foreground event when bringing a window forward also switches virtual desktops.
+	NVDA takes the new foreground window from the focus, so a focus event is enough.
+	"""
+	threadId = winUser.getWindowThreadProcessID(hwnd)[1]
+	focusWindow = winUser.getGUIThreadInfo(threadId).hwndFocus or hwnd
+	window = getNVDAObjectFromEvent(focusWindow, winUser.OBJID_CLIENT, winUser.CHILDID_SELF)
+	if window is None:
+		return
+	try:
+		focus = window.objectWithFocus()
+	except Exception:  # noqa: BLE001 - applications raise COMError and others
+		log.debugWarning("Could not get the focused control", exc_info=True)
+		focus = None
+	eventHandler.queueEvent("gainFocus", focus or window)
 
 
 class NvdaActions:
@@ -643,6 +671,12 @@ class NvdaActions:
 					f"Windows did not let NVDA bring {target.title!r} to the front. "
 					"It may belong to a program running as administrator.",
 				)
+			deadline = time.monotonic() + FOREGROUND_CATCH_UP_SECONDS
+			while not wxCallOnMain(_isNvdaForeground, target.handle):
+				if time.monotonic() >= deadline:
+					wxCallOnMain(_reportForeground, target.handle)
+					break
+				time.sleep(0.05)
 
 		result = self.runControlled(
 			"activateWindow", {"title": target.title}, perform, params, targetApp=targetApp
