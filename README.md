@@ -77,7 +77,7 @@ Both are free and open source.
    - For Claude Desktop, Cursor and other assistants that use a settings file, paste the settings into
      that file. For Claude Desktop, it is `claude_desktop_config.json` (Settings, Developer, Edit Config).
 
-   The command is like `claude mcp add --scope user nvda -- uvx nvda-mcp==0.4.0`: it tells your assistant to
+   The command is like `claude mcp add --scope user nvda -- uvx nvda-mcp==1.0.0`: it tells your assistant to
    run the server version that matches your add-on.
 
 Start your assistant and ask it something like "what has focus in NVDA?". It answers without pressing anything.

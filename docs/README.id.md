@@ -83,7 +83,7 @@ Keduanya gratis dan open source.
    - Untuk Claude Desktop, Cursor, dan asisten lain yang memakai file pengaturan, tempelkan pengaturannya ke
      file tersebut. Untuk Claude Desktop, filenya `claude_desktop_config.json` (Settings, Developer, Edit Config).
 
-   Perintahnya mirip `claude mcp add --scope user nvda -- uvx nvda-mcp==0.4.0`: perintah ini menyuruh asisten
+   Perintahnya mirip `claude mcp add --scope user nvda -- uvx nvda-mcp==1.0.0`: perintah ini menyuruh asisten
    Anda menjalankan versi server yang cocok dengan add-on Anda.
 
 Jalankan asisten Anda dan tanyakan misalnya "apa yang sedang fokus di NVDA?". Ia menjawab tanpa menekan tombol apa pun.
