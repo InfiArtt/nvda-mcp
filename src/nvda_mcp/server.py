@@ -637,18 +637,28 @@ async def nvda_find_objects(
         ),
     ] = None,
     max_results: Annotated[int, Field(ge=1, le=50, description="Stop after this many matches.")] = 20,
+    within: Annotated[
+        int | None,
+        Field(
+            ge=1,
+            description="Only search inside this control, an id from the last nvda_find_objects result, "
+            "such as a list, dialog or region. Use it when a search of a large web page stops early.",
+        ),
+    ] = None,
     response_format: FormatParam = ResponseFormat.MARKDOWN,
 ) -> str:
     """Search the foreground window for controls by name and/or role, nearest the top of the window first.
 
     Each result has an id for nvda_focus_object and nvda_activate_object. Ids are only valid until the
     next search. Faster and more precise than reading the whole tree or tabbing around.
+    To narrow a search, find a container first (role 'list', 'dialog', 'section') and pass its id as within.
     """
     if not name_contains and not role:
         raise ToolError("Pass name_contains, role, or both.")
-    result = await _call(
-        "findObjects", {"nameContains": name_contains, "role": role, "maxResults": max_results}
-    )
+    params: dict[str, Any] = {"nameContains": name_contains, "role": role, "maxResults": max_results}
+    if within is not None:
+        params["within"] = within
+    result = await _call("findObjects", params)
     if response_format == ResponseFormat.JSON:
         return _json(result)
     lines = [f"{obj['id']}. {_node_summary(obj)}" for obj in result["objects"]] or ["No matching controls."]

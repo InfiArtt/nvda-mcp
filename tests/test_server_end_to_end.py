@@ -115,7 +115,11 @@ class FakeWindow:
                 "lastId": 7,
             },
             "findObjects": lambda params: {
-                "objects": [{"id": 1, "name": "Chat in dominion", "role": "edit", "states": ["focusable"]}],
+                "objects": [
+                    {"id": 1, "name": "Chat in dominion", "role": "edit", "states": ["focusable"]}
+                    if "within" not in params
+                    else {"id": 1, "name": f"Send, inside {params['within']}", "role": "button"}
+                ],
                 "truncated": None,
             },
             "getTree": lambda params: {
@@ -325,8 +329,10 @@ async def test_find_objects_lists_ids(connect):
     connect(FakeWindow([("OK", "button")]))
     async with Client(server.mcp) as client:
         found = text_of(await client.call_tool("nvda_find_objects", {"name_contains": "chat"}))
+        inside = text_of(await client.call_tool("nvda_find_objects", {"name_contains": "send", "within": 3}))
         empty = await client.call_tool("nvda_find_objects", {})
     assert found == '1. edit "Chat in dominion" [focusable]'
+    assert inside == '1. button "Send, inside 3"'
     assert empty.is_error
 
 
