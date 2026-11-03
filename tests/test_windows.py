@@ -39,3 +39,13 @@ def test_list_windows_describes_real_windows():
             "isMinimized",
             "isHidden",
         }
+
+
+def test_child_windows_have_class_names():
+    import ctypes
+
+    desktop = ctypes.windll.user32.GetDesktopWindow()
+    children = windows.childWindows(desktop)
+    assert children, "Every desktop has top-level windows as children"
+    assert all(isinstance(handle, int) and isinstance(name, str) for handle, name in children)
+    assert windows.className(desktop) == "#32769"

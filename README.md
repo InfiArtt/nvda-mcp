@@ -129,6 +129,8 @@ How the connection is protected:
 The add-on itself sends nothing over the internet. But **what your assistant reads goes to the assistant**,
 and most assistants send it to their provider's servers. That can include the text on your screen,
 what NVDA says, the contents of documents and chat windows, and anything NVDA reads aloud while you type.
+It can also read windows you are not looking at, such as a chat window in the background
+or on another virtual desktop.
 
 - Before you work with something private, such as banking, passwords or personal messages,
   close your assistant or turn off *Let MCP clients connect* in NVDA's settings.
@@ -144,8 +146,8 @@ The assistant sees these tools:
 | `nvda_get_status` | NVDA version, synthesizer, speech mode, foreground app, permissions |
 | `nvda_get_focus` | The focused control: name, role, states, value, position, containers |
 | `nvda_get_navigator_object` | The same, for NVDA's navigator object |
-| `nvda_get_object_tree` | The accessibility tree of the foreground window, focus or navigator; long lists are shortened |
-| `nvda_find_objects` | Find controls in the foreground window by name and/or role |
+| `nvda_get_object_tree` | The accessibility tree of the foreground window, focus, navigator, a found control or a window in the background; long lists are shortened |
+| `nvda_find_objects` | Find controls by name and/or role, in the foreground window, inside a found control, or in a window in the background |
 | `nvda_get_text` | Full text of a document, web page or edit field, plus the caret line; or only the lines containing some text |
 | `nvda_get_speech_history` | What NVDA said, with ids for polling and a text filter |
 | `nvda_wait_for_speech` | Wait until NVDA says something, such as a chat reply |
@@ -153,6 +155,7 @@ The assistant sees these tools:
 | `nvda_speak` | Say something through NVDA's speech and braille |
 | `nvda_press_keys` | Press keys, optionally holding modifiers, then report what NVDA said and where focus went |
 | `nvda_type_text` | Type a line of text in any language, emoji included, without using the clipboard |
+| `nvda_set_value` | Experimental: give an edit field new text through the accessibility API, even in a background window |
 | `nvda_activate_window` | Bring a window to the front by title or handle |
 | `nvda_focus_object` | Move focus to a control found with `nvda_find_objects` |
 | `nvda_activate_object` | Press, follow or toggle a control found with `nvda_find_objects` |
@@ -168,7 +171,8 @@ For developers of add-ons and accessible applications:
 | Tool | What it does |
 |---|---|
 | `nvda_preview_speech` | What NVDA would announce when a control gets focus, without moving focus; scan a whole window and flag unlabeled or silent controls |
-| `nvda_trace_events` | Record the events NVDA handles (focus, name and value changes, live regions, UIA notifications) and what it said for each one |
+| `nvda_inspect_object` | A control's IAccessible2 attributes or UIA properties, its containers and children, loaded and reported rows of virtual lists, and the most stable way for an add-on to recognize it, with example code |
+| `nvda_trace_events` | Record the events NVDA handles (focus, name and value changes, live regions, UIA notifications) and what it said for each one; can also ask for events from a window in the background |
 | `nvda_get_log` | NVDA's log, filtered by level and text; IO entries (keys typed) only when asked |
 | `nvda_get_output_history` | Beeps, sounds, braille output and speech being cut off, optionally merged with speech |
 | `nvda_get_dev_info` | Developer info for a control, like NVDA+F1 |

@@ -136,6 +136,8 @@ Cara koneksinya dilindungi:
 Add-on ini sendiri tidak mengirim apa pun ke internet. Tetapi **apa yang dibaca asisten sampai ke asisten itu**,
 dan sebagian besar asisten mengirimkannya ke server penyedianya. Itu bisa mencakup teks di layar Anda,
 apa yang diucapkan NVDA, isi dokumen dan jendela chat, serta apa pun yang dibacakan NVDA saat Anda mengetik.
+Asisten juga bisa membaca jendela yang tidak sedang Anda lihat, misalnya jendela chat di belakang
+atau di virtual desktop lain.
 
 - Sebelum mengerjakan sesuatu yang pribadi, seperti perbankan, kata sandi, atau pesan pribadi,
   tutup asisten Anda atau matikan *Izinkan klien MCP terhubung* di pengaturan NVDA.

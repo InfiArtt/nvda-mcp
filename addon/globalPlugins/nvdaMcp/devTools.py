@@ -26,6 +26,7 @@ import nvwave
 import scriptHandler
 import speech
 import tones
+import winUser
 import wx
 from braille.extensions import pre_writeCells
 from gui.guiHelper import wxCallOnMain
@@ -33,9 +34,16 @@ from keyboardHandler import KeyboardInputGesture
 from NVDAObjects import NVDAObject
 from speech.extensions import speechCanceled
 
-from . import nvdaLog
+from . import nvdaLog, windows
 from .bridge import BridgeError, Handler
-from .nvdaActions import _LAYOUT_ROLES, NvdaActions, _appNameOf, _safeGet, describeObject
+from .nvdaActions import (
+	_LAYOUT_ROLES,
+	CHROMIUM_DOCUMENT_WINDOW_CLASS,
+	NvdaActions,
+	_appNameOf,
+	_safeGet,
+	describeObject,
+)
 from .speechLog import SpeechLog, sequenceToText
 from .traceLog import TraceLog, attributeNearbySpeech
 
@@ -52,6 +60,40 @@ MAX_DETAIL_CHARS = 200
 MAX_PREVIEW_OBJECTS = 100
 MAX_SCRIPTS = 300
 OUTPUT_KINDS = ("beep", "sound", "braille", "speechCanceled")
+# Events NVDA gets from the Windows accessibility APIs, which eventHandler.requestEvents can let through
+# from a background window. Others, such as gainFocus, only matter in the foreground.
+REQUESTABLE_EVENTS = frozenset(
+	{
+		"nameChange",
+		"valueChange",
+		"stateChange",
+		"descriptionChange",
+		"liveRegionChange",
+		"alert",
+		"show",
+		"hide",
+		"selection",
+		"selectionAdd",
+		"selectionRemove",
+		"selectionWithIn",
+		"IA2AttributeChange",
+		"documentLoadComplete",
+		"pageChange",
+		"locationChange",
+	}
+)
+# Requested when no events are named: what an add-on watching a chat or a progress needs.
+# show is left out, since web pages send many.
+DEFAULT_BACKGROUND_EVENTS = (
+	"nameChange",
+	"valueChange",
+	"stateChange",
+	"descriptionChange",
+	"liveRegionChange",
+	"alert",
+	"selection",
+	"IA2AttributeChange",
+)
 # Settings whose names look like they hold secrets, such as an add-on's API key, are never sent.
 # "Key" counts only at the end of a name (apiKey, licenseKey), so reportKeyboardShortcuts stays visible.
 _SECRET_SETTING = re.compile(r"keys?$|token|password|secret|credential", re.IGNORECASE)
@@ -115,21 +157,90 @@ class EventTracer:
 		self._stopAt = 0.0
 		self._original = None
 		self._wrapper = None
+		# (event name, process id, window class) entries this tracer added to NVDA's accepted events.
+		self._requested: set[tuple[str, int, str]] = set()
 
-	def start(self, eventNames: list[str], appName: str | None) -> None:
-		"""Start or restart tracing. Must be called on the main thread."""
+	def start(
+		self, eventNames: list[str], appName: str | None, backgroundWindow: int | None = None
+	) -> dict[str, Any] | None:
+		"""Start or restart tracing. Must be called on the main thread.
+
+		:param backgroundWindow: Also ask NVDA for events from this window while it is in the background.
+		:return: What was requested for the background window, if one was given.
+		"""
+		self._releaseRequests()
+		requested = None
+		if backgroundWindow is not None:
+			requested = self._requestBackgroundEvents(backgroundWindow, eventNames)
 		self._eventNames = set(eventNames) or None
 		self._appName = appName.casefold() if appName else None
 		self._stopAt = time.monotonic() + MAX_TRACE_SECONDS
 		self._install()
 		self.isActive = True
+		return requested
 
 	def stop(self) -> None:
 		self.isActive = False
+		self._releaseRequests()
+
+	def _requestBackgroundEvents(self, handle: Any, eventNames: list[str]) -> dict[str, Any]:
+		"""Let events from a background window through, as an add-on can with eventHandler.requestEvents.
+
+		NVDA takes requests per process and window class, so each class in the window is requested.
+		"""
+		if not isinstance(handle, int) or not windows.isWindow(handle):
+			raise BridgeError("noSuchWindow", "That window no longer exists. Call listWindows again.")
+		if eventNames:
+			unknown = sorted(set(eventNames) - REQUESTABLE_EVENTS)
+			if unknown:
+				raise BridgeError(
+					"badParams",
+					f"NVDA cannot be asked for {', '.join(unknown)} from a background window. "
+					f"These can: {', '.join(sorted(REQUESTABLE_EVENTS))}.",
+				)
+		names = list(eventNames) or list(DEFAULT_BACKGROUND_EVENTS)
+		processId = winUser.getWindowThreadProcessID(handle)[0]
+		classNames = {windows.className(handle)} | {name for _, name in windows.childWindows(handle)}
+		if any(name.startswith("Chrome_WidgetWin") for name in classNames):
+			# Web pages send their events from this window, which a hidden Chromium window does not have yet.
+			classNames.add(CHROMIUM_DOCUMENT_WINDOW_CLASS)
+		classNames = sorted(classNames)
+		for eventName in names:
+			for className in classNames:
+				entry = (eventName, processId, className)
+				# Leave requests another add-on made alone, so stopping does not take them away.
+				if entry not in eventHandler._acceptEvents:
+					eventHandler.requestEvents(eventName, processId, className)
+					self._requested.add(entry)
+		return {"events": names, "processId": processId, "windowClasses": classNames}
+
+	def _releaseRequests(self) -> None:
+		"""Withdraw the requests made for a background window. NVDA has no public way to do this."""
+		byProcess = getattr(eventHandler, "_acceptEventsByProcess", {})
+		for entry in self._requested:
+			eventHandler._acceptEvents.discard(entry)
+			processEntries = byProcess.get(entry[1])
+			if processEntries is not None:
+				processEntries.discard(entry)
+				if not processEntries:
+					byProcess.pop(entry[1], None)
+		self._requested.clear()
+
+	def _isRequestedBackgroundEvent(self, eventName: str, obj: NVDAObject) -> bool:
+		"""Whether NVDA has this event only because the tracer asked for it from a background window."""
+		if not self._requested:
+			return False
+		key = (eventName, _safeGet(obj, "processID"), _safeGet(obj, "windowClassName"))
+		windowHandle = _safeGet(obj, "windowHandle")
+		return (
+			key in self._requested
+			and bool(windowHandle)
+			and winUser.getAncestor(windowHandle, winUser.GA_ROOT) != winUser.getForegroundWindow()
+		)
 
 	def uninstall(self) -> None:
 		"""Stop tracing and remove the wrapper, unless another add-on has wrapped it since."""
-		self.isActive = False
+		self.stop()
 		if self._wrapper is not None and eventHandler.executeEvent is self._wrapper:
 			eventHandler.executeEvent = self._original
 			self._wrapper = None
@@ -151,33 +262,52 @@ class EventTracer:
 
 	def _traced(self, original: Any, eventName: str, obj: NVDAObject, kwargs: dict[str, Any]) -> Any:
 		if time.monotonic() > self._stopAt:
-			self.isActive = False
+			self.stop()
 			return original(eventName, obj, **kwargs)
+		# NVDA would not have had these events, so it does not act on them: a background chat stays silent.
+		isBackground = self._isRequestedBackgroundEvent(eventName, obj)
 		if self._eventNames is not None and eventName not in self._eventNames:
-			return original(eventName, obj, **kwargs)
+			return None if isBackground else original(eventName, obj, **kwargs)
 		appName = _appNameOf(obj)
 		if self._appName is not None and (appName or "").casefold() != self._appName:
-			return original(eventName, obj, **kwargs)
+			return None if isBackground else original(eventName, obj, **kwargs)
+		if isBackground:
+			self._record(eventName, obj, appName, kwargs, background=True)
+			return None
 		speechBefore = self._speechLog.lastId
 		try:
 			return original(eventName, obj, **kwargs)
 		finally:
-			entry: dict[str, Any] = {
-				"event": eventName,
-				"name": _safeGet(obj, "name"),
-				"role": _roleName(obj),
-				"app": appName,
-				"windowClassName": _safeGet(obj, "windowClassName"),
-			}
-			if kwargs:
-				entry["details"] = {key: _short(value) for key, value in kwargs.items()}
 			spokenEntries = self._speechLog.since(speechBefore)
-			spoken = " / ".join(item.text for item in spokenEntries)
-			if spoken:
-				entry["spoken"] = spoken
-			entry["speechBeforeId"] = speechBefore
-			entry["speechAfterId"] = spokenEntries[-1].id if spokenEntries else speechBefore
-			self.log.add("event", **{key: value for key, value in entry.items() if value not in (None, "")})
+			self._record(
+				eventName,
+				obj,
+				appName,
+				kwargs,
+				spoken=" / ".join(item.text for item in spokenEntries),
+				speechBeforeId=speechBefore,
+				speechAfterId=spokenEntries[-1].id if spokenEntries else speechBefore,
+			)
+
+	def _record(
+		self,
+		eventName: str,
+		obj: NVDAObject,
+		appName: str | None,
+		kwargs: dict[str, Any],
+		**fields: Any,
+	) -> None:
+		entry: dict[str, Any] = {
+			"event": eventName,
+			"name": _safeGet(obj, "name"),
+			"role": _roleName(obj),
+			"app": appName,
+			"windowClassName": _safeGet(obj, "windowClassName"),
+			**fields,
+		}
+		if kwargs:
+			entry["details"] = {key: _short(value) for key, value in kwargs.items()}
+		self.log.add("event", **{key: value for key, value in entry.items() if value not in (None, "")})
 
 
 class OutputRecorder:
@@ -275,20 +405,27 @@ class DevTools:
 				raise BridgeError("badParams", 'events must be a list of event names, such as ["gainFocus"].')
 			self._actions.ensureUnlocked()
 			startId = self.tracer.log.lastId
-			wxCallOnMain(self.tracer.start, eventNames, params.get("app") or None)
-			return {"tracing": True, "afterId": startId, "stopsAfterSeconds": MAX_TRACE_SECONDS}
+			background = wxCallOnMain(
+				self.tracer.start, eventNames, params.get("app") or None, params.get("backgroundWindow")
+			)
+			result = {"tracing": True, "afterId": startId, "stopsAfterSeconds": MAX_TRACE_SECONDS}
+			if background is not None:
+				result["background"] = background
+			return result
 		if action not in ("read", "stop"):
 			raise BridgeError("badParams", "action must be start, read or stop.")
 		waitSeconds = min(float(params.get("waitMs", 0)) / 1000, MAX_TRACE_WAIT_SECONDS)
 		if waitSeconds > 0 and self.tracer.isActive:
 			time.sleep(waitSeconds)
 		if action == "stop":
-			self.tracer.stop()
+			wxCallOnMain(self.tracer.stop)
 		entries = self.tracer.log.since(
 			int(params.get("afterId", 0)), min(int(params.get("limit", 100)), 500)
 		)
-		if entries:
-			firstSpeechId = min(entry.get("speechBeforeId", 0) for entry in entries)
+		# Events from a background window were not handled by NVDA, so they have no speech to look at.
+		speechIds = [entry["speechBeforeId"] for entry in entries if "speechBeforeId" in entry]
+		if speechIds:
+			firstSpeechId = min(speechIds)
 			utterances = [item.toDict() for item in self._speechLog.since(firstSpeechId)]
 			entries = attributeNearbySpeech(
 				entries, utterances, NEARBY_SPEECH_AFTER_SECONDS, NEARBY_SPEECH_BEFORE_SECONDS
@@ -447,7 +584,7 @@ class DevTools:
 		if params.get("id") is not None:
 			objects = [(params["id"], self._actions.foundObjectOnMain(params["id"]))]
 		elif target == "found":
-			objects = list(enumerate(self._actions.foundObjects, 1))[:MAX_PREVIEW_OBJECTS]
+			objects = self._actions.lastFound[:MAX_PREVIEW_OBJECTS]
 		elif target == "window":
 			maxResults = min(int(params.get("maxResults", 50)), MAX_PREVIEW_OBJECTS)
 			matches, truncated = self._actions.searchForeground(
@@ -456,7 +593,7 @@ class DevTools:
 				maxResults,
 				_isPreviewable,
 			)
-			objects = list(enumerate(matches, 1))
+			objects = list(zip(self._actions.registerObjects(matches), matches))
 		elif target in ("focus", "navigator"):
 			objects = [(None, self._target({"target": target}))]
 		else:

@@ -21,6 +21,8 @@ Things to ask for, and the tools the assistant uses:
 | "Type this for me" | `nvda_type_text` |
 | "Is this dialog accessible?" | `nvda_audit_focus_order`, `nvda_preview_speech` |
 | "Why does NVDA say nothing here?" | `nvda_trace_events`, `nvda_get_dev_info`, `nvda_get_log` |
+| "How can my add-on recognize this button?" | `nvda_inspect_object` |
+| "What does the chat window say?" (while you work elsewhere) | `nvda_list_windows`, `nvda_find_objects` with a window |
 | "Did my add-on change break anything?" | `nvda_reload_plugins`, `nvda_run_scenario` |
 
 ## Allowing key presses

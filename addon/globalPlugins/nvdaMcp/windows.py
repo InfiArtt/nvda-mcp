@@ -33,6 +33,7 @@ for _name, _restype, _argtypes in (
 	("BringWindowToTop", wintypes.BOOL, [wintypes.HWND]),
 	("AttachThreadInput", wintypes.BOOL, [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]),
 	("IsWindow", wintypes.BOOL, [wintypes.HWND]),
+	("GetClassNameW", ctypes.c_int, [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]),
 ):
 	_function = getattr(_user32, _name)
 	_function.restype = _restype
@@ -127,6 +128,26 @@ def listWindows(includeHidden: bool = False) -> list[WindowInfo]:
 
 	_user32.EnumWindows(onWindow, 0)
 	return windows
+
+
+def className(hwnd: int) -> str:
+	buffer = ctypes.create_unicode_buffer(256)
+	_user32.GetClassNameW(hwnd, buffer, len(buffer))
+	return buffer.value
+
+
+def childWindows(hwnd: int) -> list[tuple[int, str]]:
+	"""Every window inside a window, at any depth, with its class name."""
+	children: list[tuple[int, str]] = []
+
+	@ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+	def onChild(child: int | None, lParam: int) -> bool:
+		if child:
+			children.append((child, className(child)))
+		return True
+
+	_user32.EnumChildWindows(wintypes.HWND(hwnd), onChild, 0)
+	return children
 
 
 def foregroundWindow() -> int:

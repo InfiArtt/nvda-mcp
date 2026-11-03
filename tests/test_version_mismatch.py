@@ -29,3 +29,9 @@ async def test_an_older_addon_asks_to_update_the_addon(tmp_path):
         await client.call("getStatus")
     assert "add-on (an older version)" in str(error.value)
     assert "Update the add-on" in str(error.value)
+
+
+def test_addon_and_server_speak_the_same_protocol():
+    import bridge
+
+    assert bridge.PROTOCOL_VERSION == SUPPORTED_PROTOCOL_VERSION
