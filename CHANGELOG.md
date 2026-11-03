@@ -8,6 +8,12 @@ install them together.
 
 ## [Unreleased]
 
+### Added
+
+- `nvda_find_objects` takes `within`, an id from the previous search, to search only inside that control.
+  On large web pages such as WhatsApp Web, a search of the whole window can stop after 3 seconds
+  before it reaches the part that matters. This raises the bridge protocol version to 4.
+
 ### Fixed
 
 - `nvda_activate_window` now brings NVDA along when Windows switches virtual desktops to reach the window.

@@ -713,7 +713,13 @@ class NvdaActions:
 		if nameContains is None and role is None:
 			raise BridgeError("badParams", "Pass nameContains, role, or both.")
 		maxResults = min(int(params.get("maxResults", 20)), MAX_FIND_RESULTS)
-		matches, stoppedReason = self.searchForeground(nameContains, role, maxResults)
+		if params.get("within") is None:
+			matches, stoppedReason = self.searchForeground(nameContains, role, maxResults)
+		else:
+			# A large web page can use up the search budget before the part that matters.
+			container = self.foundObjectOnMain(params["within"])
+			matches, stoppedReason = findObjects(container, nameContains, role, maxResults)
+			self._foundObjects = matches
 		return {
 			"objects": [{"id": index, **describeObject(obj)} for index, obj in enumerate(matches, 1)],
 			"truncated": stoppedReason,

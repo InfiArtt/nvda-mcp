@@ -23,7 +23,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 LOOPBACK_HOST = "127.0.0.1"
 MAX_BODY_BYTES = 64 * 1024
 
