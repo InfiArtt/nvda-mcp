@@ -31,10 +31,12 @@ Reading is always allowed. Pressing keys, typing, switching windows and activati
 Turn them on in NVDA menu → Preferences → Settings → **NVDA MCP**.
 
 - The first time the assistant presses a key after NVDA starts, NVDA asks you, with **No** focused.
-  Answer **Yes** to allow it until NVDA restarts.
-- `nvda_reload_plugins` restarts the add-on, so NVDA asks again after it.
-- If you answer No, the assistant gets `controlDenied` and must not try again unless you ask.
+  Answer **Yes** to allow it until NVDA restarts. Reloading plugins (NVDA+Ctrl+F3 or `nvda_reload_plugins`)
+  keeps your answer.
+- If you answer No or press Escape, the assistant gets `controlDenied` and must not try again unless you ask.
   NVDA asks again the next time it tries.
+- If you don't answer within about a minute and a half, NVDA closes the question, says so, and presses nothing.
+  The assistant gets `approvalTimedOut`; it can ask again when you are ready.
 - Every action is written to `%APPDATA%\nvda\nvdaMcp\actions.log`. Ask "what did you do?",
   and the assistant reads it with `nvda_get_action_log`.
 

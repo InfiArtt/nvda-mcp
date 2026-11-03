@@ -11,7 +11,8 @@ so they must run on NVDA's main thread; :class:`NvdaActions` takes care of that.
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import addonHandler
@@ -43,7 +44,7 @@ from NVDAObjects.window import Window
 from treeInterceptorHandler import TreeInterceptor
 from utils.security import isLockScreenModeActive
 
-from . import windows
+from . import controlApproval, windows
 from .actionLog import ActionLog
 from .bridge import BridgeError, Handler
 from .configSpec import CONFIG_SECTION, parseAllowedApps
@@ -571,14 +572,20 @@ def _reportForeground(hwnd: int) -> None:
 	eventHandler.queueEvent("gainFocus", focus or window)
 
 
+def _controlBusyError() -> BridgeError:
+	return BridgeError(
+		"controlBusy",
+		"NVDA is busy with another action, or still waiting for the user to answer whether a client may press keys, "
+		"so nothing was done. Try again shortly.",
+	)
+
+
 class NvdaActions:
 	"""Implements bridge methods and owns the per-session control approval."""
 
 	def __init__(self, speechLog: SpeechLog, actionLog: ActionLog) -> None:
 		self._speechLog = speechLog
 		self._actionLog = actionLog
-		self._isControlApprovedThisSession = False
-		self._wasControlRevoked = False
 		# One action at a time, so concurrent requests cannot interleave keys or steal each other's speech.
 		self._controlLock = threading.Lock()
 		# Controls found by findObjects and previewSpeech, addressed by id in focusObject, activateObject and others.
@@ -588,8 +595,7 @@ class NvdaActions:
 
 	def revokeControlApproval(self) -> None:
 		"""Require the user to approve again before the next key press, even if confirmation is turned off."""
-		self._isControlApprovedThisSession = False
-		self._wasControlRevoked = True
+		controlApproval.revoke()
 
 	def handlers(self) -> dict[str, Handler]:
 		return {
@@ -644,7 +650,7 @@ class NvdaActions:
 			"foregroundApp": foreground.appModule.appName if foreground and foreground.appModule else None,
 			"foregroundWindow": _safeGet(foreground, "name") if foreground else None,
 			"isControlAllowed": config.conf[CONFIG_SECTION]["allowControl"],
-			"isControlApprovedThisSession": self._isControlApprovedThisSession,
+			"isControlApprovedThisSession": controlApproval.isApproved(),
 			"allowedApps": sorted(parseAllowedApps(config.conf[CONFIG_SECTION]["allowedApps"])) or "all",
 			"documentMode": _documentMode(),
 			"lastSpeechId": self._speechLog.lastId,
@@ -1194,8 +1200,9 @@ class NvdaActions:
 		settleSeconds = float(params.get("settleMs", 400)) / 1000
 		timeoutSeconds = float(params.get("timeoutMs", 3000)) / 1000
 		clientName = params.get("clientName") if isinstance(params.get("clientName"), str) else None
-		with self._controlLock:
-			self._ensureControlAllowed(clientName)
+		deadline = controlApproval.startDeadline(time.monotonic(), timeoutSeconds)
+		with self._controlTurn(deadline):
+			self._ensureControlAllowed(clientName, deadline)
 			foreground = wxCallOnMain(api.getForegroundObject)
 			window = wxCallOnMain(_safeGet, foreground, "name") if foreground else None
 			if targetApp is None:
@@ -1257,9 +1264,20 @@ class NvdaActions:
 			gestures.append(gesture)
 		return gestures
 
-	def _ensureControlAllowed(self, clientName: str | None = None) -> None:
+	@contextmanager
+	def _controlTurn(self, deadline: float) -> Iterator[None]:
+		"""Run one control action at a time, giving up if the previous one does not finish before deadline."""
+		if not self._controlLock.acquire(timeout=max(deadline - time.monotonic(), 0)):
+			raise _controlBusyError()
+		try:
+			yield
+		finally:
+			self._controlLock.release()
+
+	def _ensureControlAllowed(self, clientName: str | None, deadline: float) -> None:
 		"""
 		:param clientName: The name the MCP client gave itself, such as "Claude Code", to show the user.
+		:param deadline: When the user's answer comes too late, from time.monotonic().
 		"""
 		sectionConfig = config.conf[CONFIG_SECTION]
 		if not sectionConfig["allowControl"]:
@@ -1267,22 +1285,37 @@ class NvdaActions:
 				"controlDisabled",
 				"Pressing keys is turned off. Ask the user to enable it in NVDA Settings, NVDA MCP category.",
 			)
-		if self._isControlApprovedThisSession:
+		if controlApproval.isApproved():
 			return
-		if not (sectionConfig["confirmControl"] or self._wasControlRevoked):
+		if not (sectionConfig["confirmControl"] or controlApproval.wasRevoked()):
 			return
-		if not wxCallOnMain(self._askForControlApproval, clientName):
+		secondsLeft = deadline - time.monotonic()
+		if secondsLeft < controlApproval.MIN_ANSWER_SECONDS:
+			raise _controlBusyError()
+		answer = wxCallOnMain(self._askForControlApproval, clientName, secondsLeft)
+		if answer is None:
+			raise BridgeError(
+				"approvalTimedOut",
+				f"NVDA asked the user to allow key presses, but they did not answer within {round(secondsLeft)} "
+				"seconds, so nothing was done. Tell the user, and try again when they are ready to answer.",
+			)
+		if not answer:
 			raise BridgeError(
 				"controlDenied",
 				"The user declined to let this client press keys. Do not retry unless they ask.",
 			)
-		self._isControlApprovedThisSession = True
-		self._wasControlRevoked = False
+		controlApproval.approve()
 		# Give Windows time to hand focus back to the user's window before keys are sent.
 		time.sleep(FOCUS_RETURN_DELAY_SECONDS)
 
 	@staticmethod
-	def _askForControlApproval(clientName: str | None) -> bool:
+	def _askForControlApproval(clientName: str | None, timeoutSeconds: float) -> bool | None:
+		"""Ask the user whether the client may press keys.
+
+		:param timeoutSeconds: Close the dialog after this long, since the client stops waiting for the answer.
+		:return: The answer, or None if the user did not answer in time.
+		"""
+		import wx
 		from gui import mainFrame
 		from gui.message import DefaultButtonSet, DialogType, MessageDialog, ReturnCode
 
@@ -1315,9 +1348,25 @@ class NvdaActions:
 			buttons=DefaultButtonSet.YES_NO,
 		)
 		dialog.setDefaultFocus(ReturnCode.NO)
+		# Escape and closing the dialog answer No, and let the timer below close it.
+		dialog.setFallbackAction(ReturnCode.NO)
+		timedOut = False
+
+		def expire() -> None:
+			nonlocal timedOut
+			timedOut = True
+			dialog.Close()
+
+		timer = wx.CallLater(int(timeoutSeconds * 1000), expire)
 		# prePopup/postPopup return focus to the user's window after the dialog closes.
 		mainFrame.prePopup()
 		try:
-			return dialog.ShowModal() == ReturnCode.YES
+			answer = dialog.ShowModal()
 		finally:
+			timer.Stop()
 			mainFrame.postPopup()
+		if timedOut:
+			# Translators: Reported when the user did not answer in time whether an MCP client may press keys.
+			ui.message(_("NVDA MCP stopped waiting for your answer, so no keys were pressed."))
+			return None
+		return answer == ReturnCode.YES
