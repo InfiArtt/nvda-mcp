@@ -20,6 +20,12 @@ from .bridge_client import BridgeClient, NvdaBridgeError, NvdaUnavailableError
 CHARACTER_LIMIT = 25_000
 # Pressing keys can wait on the user answering NVDA's permission dialog.
 PRESS_KEYS_TIMEOUT_SECONDS = 120.0
+# When a window in the background is a Chromium browser or Electron app whose page NVDA cannot reach.
+WEB_PAGE_UNAVAILABLE = (
+    "NVDA cannot reach the web page in this window now, only the browser around it: Chromium browsers and "
+    "Electron apps stop exposing a page some time after its window is hidden. Bring the window to the front "
+    "with nvda_activate_window, or ask the user to, then try again."
+)
 
 INSTRUCTIONS = """\
 Tools for working with the NVDA screen reader on the user's Windows computer.
@@ -302,6 +308,8 @@ async def nvda_get_object_tree(
         header += f", {result['rootNote']}"
     if result.get("truncated"):
         header += f" (truncated: {result['truncated']})"
+    if result.get("webPageUnavailable"):
+        header += "\n" + WEB_PAGE_UNAVAILABLE
     return _truncate("\n".join([header, "", *_tree_markdown(result["tree"])]))
 
 
@@ -707,6 +715,8 @@ async def nvda_find_objects(
     lines = [f"{obj['id']}. {_node_summary(obj)}" for obj in result["objects"]] or ["No matching controls."]
     if result.get("truncated"):
         lines.append(f"(Search {result['truncated']}.)")
+    if result.get("webPageUnavailable"):
+        lines.append(WEB_PAGE_UNAVAILABLE)
     return _truncate("\n".join(lines))
 
 
@@ -1087,7 +1097,12 @@ def _event_line(entry: dict[str, Any]) -> str:
     if entry.get("details"):
         line += f" {json.dumps(entry['details'], ensure_ascii=False)}"
     if entry.get("background"):
+        # NVDA did not speak these, so show what the event was about instead.
         line += "\n   From the background window: recorded only, NVDA did not act on it"
+        if entry.get("text"):
+            line += f"\n   Text: {entry['text']}"
+        if entry.get("value"):
+            line += f"\n   Value: {entry['value']}"
     elif entry.get("spoken"):
         line += f"\n   NVDA said: {entry['spoken']}"
     elif not entry.get("spokenNearby"):
@@ -1130,7 +1145,8 @@ async def nvda_trace_events(
         Field(
             description="With start: also ask NVDA for events from this window while it is in the background, "
             "a handle from nvda_list_windows, as an add-on can with eventHandler.requestEvents. "
-            "NVDA normally ignores most of them. They are recorded, but NVDA does not act on them.",
+            "NVDA normally ignores most of them. They are recorded with the control's value and the text of "
+            "live regions, but NVDA does not act on them.",
         ),
     ] = None,
     after_id: Annotated[

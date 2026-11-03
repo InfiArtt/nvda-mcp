@@ -2,13 +2,14 @@
 # Copyright (C) 2026 InfiArtt
 # This file is covered by the GNU General Public License.
 
-"""Walking an accessibility tree within limits, leaving out containers that only exist for layout.
+"""Walking and searching an accessibility tree within limits.
 
 This module does not import NVDA, so it can be unit tested on its own: the caller says how to
-read an object's children, how to describe it and whether it only exists for layout.
+read an object's children, how to describe it, and whether it only exists for layout or matches a search.
 """
 
 import time
+from collections import deque
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -89,3 +90,49 @@ def walkTree(
 
 	tree = visit(root, 0, 0)
 	return {"nodeCount": nodeCount, "truncated": truncatedReason, "tree": tree}
+
+
+def searchTrees(
+	roots: list[T],
+	isMatch: Callable[[T], bool],
+	maxResults: int,
+	*,
+	firstChild: Callable[[T], T | None],
+	nextSibling: Callable[[T], T | None],
+	timeBudgetSeconds: float,
+	maxVisits: int,
+	maxNesting: int,
+	found: list[T] | None = None,
+) -> tuple[list[T], str | None]:
+	"""Breadth-first search below each root in turn, so matches nearest a root come first.
+
+	The roots share one time budget and one visit limit, so searching several parts of a window,
+	such as its web document and then the whole window, takes no longer than searching one.
+	A root itself never matches, and a control found below an earlier root is not repeated.
+	:param found: Matches already known, such as the focus; they count towards maxResults.
+	:return: The matches, and why the search stopped early, if it did.
+	"""
+	deadline = time.monotonic() + timeBudgetSeconds
+	matches = list(found or [])
+	visits = 0
+	for root in roots:
+		queue: deque[tuple[T, int]] = deque([(root, 0)])
+		while queue:
+			if len(matches) >= maxResults:
+				return matches, f"stopped at {maxResults} results"
+			obj, nesting = queue.popleft()
+			visits += 1
+			if visits > maxVisits:
+				return matches, f"stopped after looking at {maxVisits} objects"
+			if time.monotonic() > deadline:
+				return matches, f"stopped after {timeBudgetSeconds} seconds"
+			if obj is not root and isMatch(obj) and obj not in matches:
+				matches.append(obj)
+			if nesting < maxNesting:
+				child = firstChild(obj)
+				while child is not None:
+					queue.append((child, nesting + 1))
+					child = nextSibling(child)
+	if len(matches) >= maxResults:
+		return matches, f"stopped at {maxResults} results"
+	return matches, None

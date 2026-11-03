@@ -25,6 +25,7 @@ import inputCore
 import nvwave
 import scriptHandler
 import speech
+import textInfos
 import tones
 import winUser
 import wx
@@ -102,6 +103,33 @@ _SECRET_SETTING = re.compile(r"keys?$|token|password|secret|credential", re.IGNO
 def _short(value: Any) -> str:
 	text = value if isinstance(value, str) else repr(value)
 	return text if len(text) <= MAX_DETAIL_CHARS else text[:MAX_DETAIL_CHARS] + "…"
+
+
+# Events about text that appeared, which NVDA would announce, such as a chat's new message.
+_TEXT_EVENTS = frozenset({"liveRegionChange", "alert"})
+# Browsers put this where a child element is in an object's text.
+_OBJECT_REPLACEMENT_CHARACTER = "\ufffc"
+
+
+def _objectText(obj: NVDAObject) -> str | None:
+	try:
+		text = obj.makeTextInfo(textInfos.POSITION_ALL).text
+	except Exception:  # noqa: BLE001 - many objects have no text, and applications raise COMError
+		return None
+	return " ".join(text.replace(_OBJECT_REPLACEMENT_CHARACTER, " ").split()) or None
+
+
+def _backgroundEventContent(eventName: str, obj: NVDAObject) -> dict[str, str]:
+	"""What an event from a background window was about, since NVDA did not speak it."""
+	content: dict[str, str] = {}
+	value = _safeGet(obj, "value")
+	if value:
+		content["value"] = _short(value)
+	if eventName in _TEXT_EVENTS:
+		text = _objectText(obj)
+		if text and text != _safeGet(obj, "name"):
+			content["text"] = _short(text)
+	return content
 
 
 def _roleName(obj: NVDAObject) -> str | None:
@@ -272,7 +300,9 @@ class EventTracer:
 		if self._appName is not None and (appName or "").casefold() != self._appName:
 			return None if isBackground else original(eventName, obj, **kwargs)
 		if isBackground:
-			self._record(eventName, obj, appName, kwargs, background=True)
+			self._record(
+				eventName, obj, appName, kwargs, background=True, **_backgroundEventContent(eventName, obj)
+			)
 			return None
 		speechBefore = self._speechLog.lastId
 		try:

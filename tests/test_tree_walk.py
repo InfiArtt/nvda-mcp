@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 
-from treeWalk import walkTree
+import treeWalk
+from treeWalk import searchTrees, walkTree
 
 
 @dataclass(eq=False)
@@ -56,3 +57,48 @@ def test_node_limit_reports_why_it_stopped():
     assert result["nodeCount"] == 4
     assert result["truncated"] == "stopped after 4 nodes"
     assert len(result["tree"]["children"]) == 3
+
+
+def search(roots, name, max_results=10, found=None):
+    return searchTrees(
+        roots,
+        lambda node: name in node.name,
+        max_results,
+        firstChild=lambda node: node.children[0] if node.children else None,
+        nextSibling=lambda node: node.next,
+        timeBudgetSeconds=3.0,
+        maxVisits=100,
+        maxNesting=100,
+        found=found,
+    )
+
+
+def test_search_roots_share_one_time_budget(monkeypatch):
+    # A web document, then its whole browser window: each object takes a second to look at.
+    clock = iter(range(100))
+    monkeypatch.setattr(treeWalk.time, "monotonic", lambda: next(clock))
+    document = Node("document", "WhatsApp", [Node("text", str(number)) for number in range(10)])
+    window = Node("window", "Brave", [Node("button", "Reload")])
+    matches, stopped = search([document, window], "Reload")
+    assert matches == []
+    assert stopped == "stopped after 3.0 seconds"
+
+
+def test_search_does_not_repeat_controls_found_below_an_earlier_root():
+    box = Node("edit", "Search or start a new chat")
+    document = Node("document", "WhatsApp", [Node("section", "", [box])])
+    window = Node("window", "WhatsApp - Brave", [document])
+    matches, stopped = search([document, window], "WhatsApp")
+    # Neither root matches itself, but the document matches below the window.
+    assert matches == [document]
+    assert stopped is None
+    matches, _ = search([document, window], "Search")
+    assert matches == [box]
+
+
+def test_controls_already_found_count_towards_the_results():
+    focus = Node("edit", "Search or start a new chat")
+    root = Node("document", "WhatsApp", [Node("button", "Search"), focus])
+    matches, stopped = search([root], "Search", max_results=2, found=[focus])
+    assert matches == [focus, root.children[0]]
+    assert stopped == "stopped at 2 results"

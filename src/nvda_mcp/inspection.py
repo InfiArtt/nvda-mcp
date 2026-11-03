@@ -25,6 +25,10 @@ _STATE_CLASS = re.compile(
     r"|^(is|has)-",
     re.IGNORECASE,
 )
+# React's useId: :r1: (React 18), «r1» (React 19.0) and _r_1_ (React 19.1 and later, as in WhatsApp Web).
+_REACT_ID = re.compile(r"[:«»]|^_[rR]_[0-9a-zA-Z]+_$")
+# Counters: mui-12345, and Meta's page roots such as mount_0_0_VM.
+_COUNTER_ID = re.compile(r"[-_]\d+$|^mount(_\d+)+_")
 
 
 def looks_generated_class(token: str) -> bool:
@@ -36,8 +40,12 @@ def looks_generated_class(token: str) -> bool:
 
 
 def looks_generated_id(value: str) -> bool:
-    """Whether an HTML id looks generated: React's useId (:r1:), counters (mui-12345) or hashes."""
-    return ":" in value or re.search(r"[-_]\d+$", value) is not None or looks_generated_class(value)
+    """Whether an HTML id looks generated: React's useId, counters (mui-12345) or hashes."""
+    return (
+        _REACT_ID.search(value) is not None
+        or _COUNTER_ID.search(value) is not None
+        or looks_generated_class(value)
+    )
 
 
 def is_state_class(token: str) -> bool:

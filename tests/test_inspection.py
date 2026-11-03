@@ -34,10 +34,17 @@ def test_hand_written_class_names_do_not(token):
     assert not inspection.looks_generated_class(token)
 
 
-def test_generated_ids_and_state_classes_are_recognized():
-    assert inspection.looks_generated_id(":r1:")
-    assert inspection.looks_generated_id("mui-12345")
-    assert not inspection.looks_generated_id("main")
+@pytest.mark.parametrize("value", [":r1:", "«r1»", "_r_f_", "_R_2kd_", "mui-12345", "mount_0_0_VM"])
+def test_generated_ids_are_recognized(value):
+    assert inspection.looks_generated_id(value)
+
+
+@pytest.mark.parametrize("value", ["main", "side", "app", "pane-side", "rich_text"])
+def test_hand_written_ids_are_not(value):
+    assert not inspection.looks_generated_id(value)
+
+
+def test_state_classes_are_recognized():
     assert inspection.is_state_class("ProseMirror-focused")
     assert not inspection.is_state_class("ProseMirror")
 
@@ -77,6 +84,19 @@ def test_markdown_explains_the_virtual_list_and_gives_overlay_code():
         "\t\tif (\n\t\t\tisinstance(obj, IAccessible)\n\t\t\tand obj.role == controlTypes.Role.TABLE\n"
         '\t\t\tand obj.IA2Attributes.get("xml-roles") == "grid"\n'
     ) in text
+
+
+def test_react_ids_are_avoided():
+    # WhatsApp Web's search box, as NVDA reported it.
+    search_box = {
+        "object": {"name": "Search or start a new chat", "role": "edit"},
+        "roleConstant": "EDITABLETEXT",
+        "api": "IAccessible2",
+        "attributes": {"tag": "input", "id": "_r_f_", "xml-roles": "textbox", "name-from": "attribute"},
+    }
+    conditions, avoid = inspection.suggest(search_box)
+    assert not any("_r_f_" in condition.expression for condition in conditions)
+    assert any('the HTML id "_r_f_"' in item for item in avoid)
 
 
 def test_desktop_controls_use_automation_id_and_window_class():

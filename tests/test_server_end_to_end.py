@@ -102,11 +102,11 @@ class FakeWindow:
                 },
                 {
                     "id": 7,
-                    "event": "nameChange",
-                    "name": "Chat list",
-                    "role": "table",
+                    "event": "liveRegionChange",
+                    "role": "section",
                     "app": "brave",
                     "background": True,
+                    "text": "3 chats found",
                 },
             ],
         }
@@ -179,6 +179,7 @@ class FakeWindow:
                     else {"id": 1, "name": "Chat in dominion", "role": "edit", "states": ["focusable"]}
                 ],
                 "truncated": None,
+                **({"webPageUnavailable": True} if params.get("window") == 23 else {}),
             },
             "getTree": lambda params: (
                 self.calls.update(getTree=params)
@@ -197,6 +198,7 @@ class FakeWindow:
                             }
                         ],
                     },
+                    **({"webPageUnavailable": True} if params.get("window") == 23 else {}),
                 }
             ),
             "getStatus": lambda params: {"lastSpeechId": self.speech.lastId},
@@ -385,6 +387,18 @@ async def test_find_objects_lists_ids(connect):
     assert both.is_error
 
 
+async def test_hidden_browser_window_says_its_page_cannot_be_reached(connect):
+    connect(FakeWindow([("OK", "button")]))
+    async with Client(server.mcp) as client:
+        found = text_of(await client.call_tool("nvda_find_objects", {"role": "edit", "window": 23}))
+        tree = text_of(await client.call_tool("nvda_get_object_tree", {"window": 23}))
+        shown = text_of(await client.call_tool("nvda_get_object_tree", {"window": 22}))
+    assert "NVDA cannot reach the web page in this window now" in found
+    assert tree.startswith("3 objects\nNVDA cannot reach the web page in this window now")
+    assert "nvda_activate_window" in tree
+    assert "cannot reach" not in shown
+
+
 async def test_tree_says_how_many_children_were_left_out(connect):
     connect(FakeWindow([("OK", "button")]))
     async with Client(server.mcp) as client:
@@ -489,8 +503,9 @@ async def test_get_log_and_trace_events(connect):
         "3 events, lastId 7, tracing is off.\n\n"
         "5. nameChange on Status (text) in demo\n   NVDA said nothing\n"
         "6. liveRegionChange on Status (text) in demo\n   NVDA said around then, probably because of this: Saved\n"
-        "7. nameChange on Chat list (table) in brave\n"
-        "   From the background window: recorded only, NVDA did not act on it"
+        "7. liveRegionChange on (no name) (section) in brave\n"
+        "   From the background window: recorded only, NVDA did not act on it\n"
+        "   Text: 3 chats found"
     )
 
 

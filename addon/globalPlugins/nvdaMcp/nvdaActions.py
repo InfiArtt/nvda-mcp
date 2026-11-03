@@ -49,7 +49,7 @@ from .bridge import BridgeError, Handler
 from .configSpec import CONFIG_SECTION, parseAllowedApps
 from .objectRegistry import ObjectRegistry
 from .speechLog import SpeechLog
-from .treeWalk import walkTree
+from .treeWalk import searchTrees, walkTree
 
 addonHandler.initTranslation()
 
@@ -275,27 +275,7 @@ def findObjects(
 	:param predicate: When given, objects must also satisfy it.
 	:return: The matches, nearest the root first, and why the search stopped early, if it did.
 	"""
-	deadline = time.monotonic() + TREE_TIME_BUDGET_SECONDS
-	matches: list[NVDAObject] = []
-	queue: deque[tuple[NVDAObject, int]] = deque([(root, 0)])
-	visits = 0
-	while queue:
-		obj, nesting = queue.popleft()
-		visits += 1
-		if visits > MAX_FIND_VISITS:
-			return matches, f"stopped after looking at {MAX_FIND_VISITS} objects"
-		if time.monotonic() > deadline:
-			return matches, f"stopped after {TREE_TIME_BUDGET_SECONDS} seconds"
-		if obj is not root and _objectMatches(obj, nameContains, role, predicate):
-			matches.append(obj)
-			if len(matches) >= maxResults:
-				return matches, f"stopped at {maxResults} results"
-		if nesting < MAX_TREE_NESTING:
-			child = _safeGet(obj, "firstChild")
-			while child is not None:
-				queue.append((child, nesting + 1))
-				child = _safeGet(child, "next")
-	return matches, None
+	return _searchRoots([root], nameContains, role, maxResults, predicate)
 
 
 def _searchRoots(
@@ -306,24 +286,21 @@ def _searchRoots(
 	predicate: Callable[[NVDAObject], bool] | None = None,
 	matches: list[NVDAObject] | None = None,
 ) -> tuple[list[NVDAObject], str | None]:
-	"""Search several roots in turn, leaving out controls already found below an earlier one.
+	"""Search several roots in turn within one time budget, as :func:`treeWalk.searchTrees` describes.
 
 	:param matches: Controls already found, such as the focus, that count towards maxResults.
 	"""
-	matches = list(matches or [])
-	stoppedReasons = []
-	for root in roots:
-		if len(matches) >= maxResults:
-			break
-		moreMatches, stoppedReason = findObjects(
-			root, nameContains, role, maxResults - len(matches), predicate
-		)
-		matches += [match for match in moreMatches if match not in matches]
-		if stoppedReason:
-			stoppedReasons.append(stoppedReason)
-	if len(matches) >= maxResults:
-		return matches, f"stopped at {maxResults} results"
-	return matches, "; ".join(stoppedReasons) or None
+	return searchTrees(
+		roots,
+		lambda obj: _objectMatches(obj, nameContains, role, predicate),
+		maxResults,
+		firstChild=lambda obj: _safeGet(obj, "firstChild"),
+		nextSibling=lambda obj: _safeGet(obj, "next"),
+		timeBudgetSeconds=TREE_TIME_BUDGET_SECONDS,
+		maxVisits=MAX_FIND_VISITS,
+		maxNesting=MAX_TREE_NESTING,
+		found=matches,
+	)
 
 
 # The child window that holds a web document's accessibility tree, in Chromium browsers and Electron apps.
@@ -353,6 +330,15 @@ def _windowRoots(handle: Any) -> list[NVDAObject]:
 			roots.append(document)
 	roots.append(Window(windowHandle=handle))
 	return roots
+
+
+def _isWebPageUnavailable(handle: int, roots: list[NVDAObject]) -> bool:
+	"""Whether a Chromium browser or Electron app window offers only the browser around its page.
+
+	Chromium removes the child window that holds a page some time after its window is hidden,
+	and NVDA then drops its browse mode document, so neither leads to the page any more.
+	"""
+	return len(roots) == 1 and windows.className(handle).startswith("Chrome_WidgetWin")
 
 
 def _apiName(obj: NVDAObject) -> str:
@@ -696,6 +682,7 @@ class NvdaActions:
 		maxNodes = min(int(params.get("maxNodes", 150)), MAX_TREE_NODES)
 		maxChildren = int(params["maxChildren"]) if params.get("maxChildren") else None
 		rootNote = None
+		isWebPageUnavailable = False
 		if params.get("id") is not None:
 			root = self.foundObjectOnMain(params["id"])
 		elif params.get("window") is not None:
@@ -703,6 +690,7 @@ class NvdaActions:
 			root = windowRoots[0]
 			if len(windowRoots) > 1:
 				rootNote = "started from the web document in that window"
+			isWebPageUnavailable = _isWebPageUnavailable(params["window"], windowRoots)
 		else:
 			root = roots[rootName]()
 		if rootName == "foreground" and params.get("id") is None and params.get("window") is None:
@@ -716,6 +704,8 @@ class NvdaActions:
 		result = _walkTree(root, maxDepth, maxNodes, maxChildren)
 		if rootNote:
 			result["rootNote"] = rootNote
+		if isWebPageUnavailable:
+			result["webPageUnavailable"] = True
 		return result
 
 	def _getText(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -936,21 +926,25 @@ class NvdaActions:
 		maxResults = min(int(params.get("maxResults", 20)), MAX_FIND_RESULTS)
 		if params.get("within") is not None and params.get("window") is not None:
 			raise BridgeError("badParams", "Pass within or window, not both.")
+		isWebPageUnavailable = False
 		if params.get("within") is not None:
 			# A large web page can use up the search budget before the part that matters.
 			container = self.foundObjectOnMain(params["within"])
 			matches, stoppedReason = findObjects(container, nameContains, role, maxResults)
 		elif params.get("window") is not None:
-			matches, stoppedReason = _searchRoots(
-				_windowRoots(params["window"]), nameContains, role, maxResults
-			)
+			windowRoots = _windowRoots(params["window"])
+			matches, stoppedReason = _searchRoots(windowRoots, nameContains, role, maxResults)
+			isWebPageUnavailable = _isWebPageUnavailable(params["window"], windowRoots)
 		else:
 			matches, stoppedReason = self.searchForeground(nameContains, role, maxResults)
 		ids = self.registerObjects(matches)
-		return {
+		result: dict[str, Any] = {
 			"objects": [{"id": objectId, **describeObject(obj)} for objectId, obj in zip(ids, matches)],
 			"truncated": stoppedReason,
 		}
+		if isWebPageUnavailable:
+			result["webPageUnavailable"] = True
+		return result
 
 	def searchForeground(
 		self,
