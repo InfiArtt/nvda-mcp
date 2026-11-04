@@ -49,6 +49,7 @@ install them together.
   and its own children were cut short; on WhatsApp Web most of the page went missing this way.
 - `nvda_activate_window` now brings NVDA along when Windows switches virtual desktops to reach the window.
   Windows sends no event then, so NVDA kept reading the old window and the result showed the old focus.
+  NVDA then says the window title once, as after Alt+Tab; at first it said it twice in browsers.
 
 ## [1.0.0] - 2026-11-02
 

@@ -48,6 +48,7 @@ from . import controlApproval, windows
 from .actionLog import ActionLog
 from .bridge import BridgeError, Handler
 from .configSpec import CONFIG_SECTION, parseAllowedApps
+from .focusCatchUp import catchUpEvents
 from .objectRegistry import ObjectRegistry
 from .speechLog import SpeechLog
 from .treeWalk import searchTrees, walkTree
@@ -554,22 +555,36 @@ def _isNvdaForeground(hwnd: int) -> bool:
 
 
 def _reportForeground(hwnd: int) -> None:
-	"""Tell NVDA about the control focused in a window it missed coming to the front.
+	"""Tell NVDA about a window it missed coming to the front, the way an Alt+Tab would.
 
 	Windows sends no foreground event when bringing a window forward also switches virtual desktops.
-	NVDA takes the new foreground window from the focus, so a focus event is enough.
+	See :func:`focusCatchUp.catchUpEvents` for why the window gets a focus event of its own.
 	"""
+	lastFocusWindow = _safeGet(eventHandler.lastQueuedFocusObject, "windowHandle")
+	if lastFocusWindow and winUser.isDescendantWindow(hwnd, lastFocusWindow):
+		# NVDA caught up on its own since the add-on last looked.
+		return
 	threadId = winUser.getWindowThreadProcessID(hwnd)[1]
 	focusWindow = winUser.getGUIThreadInfo(threadId).hwndFocus or hwnd
 	window = getNVDAObjectFromEvent(focusWindow, winUser.OBJID_CLIENT, winUser.CHILDID_SELF)
-	if window is None:
-		return
+	focus = None
+	if window is not None:
+		try:
+			focus = window.objectWithFocus()
+		except Exception:  # noqa: BLE001 - applications raise COMError and others
+			log.debugWarning("Could not get the focused control", exc_info=True)
 	try:
-		focus = window.objectWithFocus()
+		# The object NVDA's own focus handling takes as the foreground window. For windows NVDA reads
+		# through UI Automation, such as Chromium's, it is a UIA object, the same one the control's
+		# containers lead up to, so NVDA counts the window as entered when the control gets focus.
+		foreground = api.getDesktopObject().objectInForeground()
 	except Exception:  # noqa: BLE001 - applications raise COMError and others
-		log.debugWarning("Could not get the focused control", exc_info=True)
-		focus = None
-	eventHandler.queueEvent("gainFocus", focus or window)
+		log.debugWarning("Could not get the foreground window", exc_info=True)
+		foreground = None
+	if _safeGet(foreground, "windowHandle") != hwnd:
+		foreground = None
+	for obj in catchUpEvents(foreground, focus or window):
+		eventHandler.queueEvent("gainFocus", obj)
 
 
 def _controlBusyError() -> BridgeError:
