@@ -375,6 +375,34 @@ def test_a_tree_that_exactly_fits_the_budget_is_not_truncated():
     assert "cut" not in str(result["tree"])
 
 
+def test_last_object_the_node_budget_allows_only_checks_that_it_has_children():
+    items = rows(700)
+    chats = Node("list", "Chats", items)
+    root = Node("document", "Page", [chats])
+    callbacks = Callbacks(items[600])
+    result = snapshot(root, callbacks, maxNodes=2, headChildren=3, tailChildren=2)
+    tree = result["tree"]
+    assert result["truncated"] == "stopped after 2 nodes"
+    chats_node = tree["children"][0]
+    assert chats_node["cut"] == "nodes"
+    assert chats_node["childCount"] == 700
+    assert "children" not in chats_node
+    assert "cut" not in tree
+    # No row can be described, so the rows are not counted, read from the end or scanned for the focus:
+    # reaching the first one is enough to know that some were left out.
+    assert callbacks.asked("firstChild") == [root, chats]
+    assert callbacks.asked("nextSibling") == [chats]
+    assert callbacks.asked("lastChild") == []
+    assert [node.name for node in callbacks.asked("isOnFocusPath")] == ["Page", "Chats"]
+    touched = callbacks.touched()
+    assert not any(id(item) in touched for item in items[1:])
+    # The last object allowed has no children: it says nothing more.
+    root = Node("document", "Page", [Node("button", "Send"), Node("button", "Menu")])
+    result = snapshot(root, maxNodes=2)
+    assert result["tree"]["children"][0] == {"key": None, "role": "button", "name": "Send", "index": 0}
+    assert result["tree"]["cut"] == "nodes"
+
+
 def test_long_list_keeps_the_first_and_last_children_with_negative_indexes():
     items = rows(20)
     chats = Node("list", "Chats", items)
@@ -469,6 +497,29 @@ def test_focus_child_counted_from_the_start_and_read_from_the_end_is_kept_once()
     assert callbacks.described_names().count("5") == 1
 
 
+def test_object_read_from_the_start_and_again_from_the_end_is_kept_once():
+    # The list loses rows between counting from the start and reading from the end. The rows read
+    # from the end are new objects, as NVDA hands out, so the one read twice is known by its key.
+    def row(number):
+        return Node("row", str(number), key=f"ia2:1:{number}")
+
+    chats = Node("list", "Chats", [row(number) for number in range(8)])
+
+    class Shrinking(Callbacks):
+        def last_child(self, node):
+            if node is chats:
+                chats.children = Node("list", "Chats", [row(number) for number in range(4)]).children
+            return super().last_child(node)
+
+    result = snapshot(chats, Shrinking(), headChildren=3, tailChildren=2)
+    tree = result["tree"]
+    assert [child["key"] for child in tree["children"]] == ["ia2:1:0", "ia2:1:1", "ia2:1:2", "ia2:1:3"]
+    assert child_indexes(tree) == [0, 1, 2, -1]
+    assert tree["cut"] == "gap"
+    # The copy left out does not count as a node.
+    assert result["nodeCount"] == 5
+
+
 def test_focus_child_past_the_first_500_children_is_left_out():
     items = rows(700)
     callbacks = Callbacks(items[600])
@@ -498,6 +549,26 @@ def test_focus_is_only_asked_about_children_of_objects_on_the_focus_path():
     callbacks = Callbacks(focus=None)
     snapshot(root, callbacks)
     assert [node.name for node in callbacks.asked("isOnFocusPath")] == ["WhatsApp"]
+
+
+def test_children_of_the_focus_are_not_searched_for_the_focus_path():
+    items = rows(700)
+    files = Node("list", "Files", items)
+    root = Node("document", "Page", [Node("button", "Menu"), files])
+    callbacks = Callbacks(files)
+    tree = snapshot(root, callbacks, headChildren=3, tailChildren=2)["tree"]
+    files_node = tree["children"][1]
+    assert files_node["focused"] is True
+    assert child_indexes(files_node) == [0, 1, 2, -2, -1]
+    # The list is the focus, so none of its rows is on the way to it: no row is asked,
+    # and counting stops at head + tail + 1 rows instead of scanning the first 500.
+    assert [node.name for node in callbacks.asked("isOnFocusPath")] == ["Page", "Menu", "Files"]
+    assert len([node for node in callbacks.asked("nextSibling") if node in items]) <= 3 + 2 + 1
+    # The same when the focus is the root.
+    callbacks = Callbacks(files)
+    snapshot(files, callbacks, headChildren=3, tailChildren=2)
+    assert callbacks.asked("isOnFocusPath") == []
+    assert len(callbacks.asked("nextSibling")) <= 3 + 2 + 1
 
 
 def test_depth_limit_uses_child_count_without_reading_children():
@@ -761,8 +832,9 @@ def test_sibling_cycle_ends():
     items[2].next = items[0]
     tree = snapshot(Node("list", "Chats", items), headChildren=2, tailChildren=2)["tree"]
     # Counting sees 0, 1, 2, 0, 1 and finds the list long; the walk ends all the same.
-    assert child_names(tree) == ["0", "1", "1", "2"]
-    assert child_indexes(tree) == [0, 1, -2, -1]
+    # Row 1, read from the start and again from the end, is kept once.
+    assert child_names(tree) == ["0", "1", "2"]
+    assert child_indexes(tree) == [0, 1, -1]
 
 
 class Clock:
@@ -818,6 +890,67 @@ def test_time_running_out_while_counting_children(monkeypatch):
     assert result["tree"]["cut"] == "time"
     assert "children" not in result["tree"]
     assert callbacks.described_names() == ["Chats"]
+
+
+class StillClock(Callbacks):
+    """Time stands still, unless the walk goes round far more often than any guard allows:
+    then it runs out, so a missing guard fails the test instead of hanging it."""
+
+    def __init__(self, clock, focus=None):
+        super().__init__(focus)
+        self.clock = clock
+
+    def _call(self, name, node):
+        super()._call(name, node)
+        if len(self.calls) > 100_000:
+            self.clock.now = 10.0**9
+
+
+LAYOUT_LOOP = "stopped after 500 steps through layout containers without finding a child"
+
+
+def test_loop_among_sibling_layout_containers_is_stopped_and_the_walk_carries_on(monkeypatch):
+    clock = Clock()
+    monkeypatch.setattr(treeWalk.time, "monotonic", clock)
+    loop = Node("section", "")
+    broken = Node("list", "Broken", [loop])
+    loop.next = loop
+    buttons = [Node("button", f"Button {number}") for number in range(30)]
+    root = Node("document", "Page", [broken, *buttons])
+    callbacks = StillClock(clock)
+    result = snapshot(root, callbacks, headChildren=20, tailChildren=20, timeBudgetSeconds=2.5)
+    tree = result["tree"]
+    assert result["truncated"] == LAYOUT_LOOP
+    assert child_names(tree) == ["Broken"] + [button.name for button in buttons]
+    assert tree["children"][0]["cut"] == "nesting"
+    assert tree["children"][0]["childCount"] == 1
+    assert "cut" not in tree
+    assert len(callbacks.calls) < 2000
+
+
+def test_loop_among_layout_containers_read_from_the_end_is_stopped(monkeypatch):
+    clock = Clock()
+    monkeypatch.setattr(treeWalk.time, "monotonic", clock)
+    loop = Node("section", "")
+    chats = Node("list", "Chats", [*rows(20), loop])
+    loop.previous = loop
+    root = Node("document", "Page", [chats, Node("button", "Send")])
+    result = snapshot(root, StillClock(clock), headChildren=3, tailChildren=2, timeBudgetSeconds=2.5)
+    chats_node = result["tree"]["children"][0]
+    assert child_indexes(chats_node) == [0, 1, 2]
+    assert chats_node["cut"] == "nesting"
+    assert child_names(result["tree"]) == ["Chats", "Send"]
+    assert result["truncated"] == LAYOUT_LOOP
+
+
+def test_layout_containers_around_every_child_do_not_stop_a_long_read():
+    # Each row is two layout containers deep: many steps in all, but few between one row and the next.
+    items = rows(600)
+    root = Node("list", "Messages", [Node("section", "", [Node("section", "", [row])]) for row in items])
+    result = snapshot(root, Callbacks(items[499]), headChildren=3, tailChildren=2)
+    assert child_indexes(result["tree"]) == [0, 1, 2, 499, -2, -1]
+    assert result["tree"]["cut"] == "gap"
+    assert result["truncated"] is None
 
 
 ALL_CALLBACKS = (
