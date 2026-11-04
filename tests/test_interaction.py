@@ -325,12 +325,18 @@ def test_unchanged_long_list_has_no_changes_and_no_notes():
 
 def test_new_children_in_the_unread_middle_are_counted():
     diff = diff_snapshots(chat_pane([1, 2, 3], [48, 49, 50], 50), chat_pane([1, 2, 3], [48, 49, 50], 53))
-    assert summary(diff) == [("child count", "", "3 more children than before (not read)")]
+    assert summary(diff) == [
+        ("child count", "", "3 more children than before (53 now, 50 before; not all read)")
+    ]
 
 
-def test_objects_next_to_the_unread_middle_are_not_compared():
+@pytest.mark.parametrize("keyed", [True, False])
+def test_objects_next_to_the_unread_middle_are_not_compared(keyed):
     # A message was inserted near the start: message 3 moved into the unread middle and message 4 is new there.
-    diff = diff_snapshots(chat_pane([1, 2, 3], [48, 49, 50], 50), chat_pane([1, 2, 4], [48, 49, 50], 50))
+    # Without ids, they are not taken for one message renamed either.
+    diff = diff_snapshots(
+        chat_pane([1, 2, 3], [48, 49, 50], 50, keyed), chat_pane([1, 2, 4], [48, 49, 50], 50, keyed)
+    )
     assert diff.changes == []
     assert len(diff.not_compared) == 2
     assert 'read only before (list item "message 3")' in diff.not_compared[0]
@@ -622,14 +628,16 @@ def test_incomplete_before_parent_hides_additions():
     assert "read only after" in diff.not_compared[0]
 
 
-def test_removal_between_two_read_siblings_is_reported_even_when_the_parent_was_cut():
+def test_object_missing_between_two_read_siblings_of_a_cut_parent_only_disappeared():
+    # The rest of the list was not read after, so Bob may have moved there; the count says one row fewer.
     five = [*CHATS, (5, "Eve, 6:00 AM, hey")]
     after = whatsapp([CHATS[0], CHATS[2]])
     chat_list(after)["cut"] = "nodes"
     chat_list(after)["childCount"] = 4
     diff = diff_snapshots(whatsapp(five), after)
     assert summary(diff) == [
-        ("removed", 'row "Bob, 5:40 AM, see you"', '(3 objects inside, such as "Bob", "5:40 AM", "see you")')
+        ("child count", "", "1 fewer child than before (4 now, 5 before; not all read)"),
+        ("disappeared", 'row "Bob, 5:40 AM, see you"', "removed, or moved into the part not read"),
     ]
     assert "Dan, Monday, photo" in diff.not_compared[0] and "Eve, 6:00 AM, hey" in diff.not_compared[0]
 
@@ -658,7 +666,12 @@ def test_child_count_change_below_the_depth_limit():
         row.update(cut="depth", childCount=child_count)
     diff = diff_snapshots(before, after)
     assert located(diff) == [
-        ('row "Ana, 5:47 AM, hello"', "child count", "", "1 more child than before (not read)")
+        (
+            'row "Ana, 5:47 AM, hello"',
+            "child count",
+            "",
+            "1 more child than before (4 now, 3 before; not all read)",
+        )
     ]
     assert diff.not_compared == [
         'What is inside row "Ana, 5:47 AM, hello" (the depth limit was reached there).'
@@ -786,3 +799,343 @@ def test_longest_increasing_subsequence():
     assert interaction._longest_increasing([1, 2, 3, 0]) == {0, 1, 2}
     assert interaction._longest_increasing([]) == set()
     assert len(interaction._longest_increasing([3, 1, 2, 0, 4])) == 3
+
+
+def test_longest_increasing_subsequence_keeps_the_preferred_items():
+    # Both [1] and [0] are longest; the second item is preferred, so the first is the one left out.
+    assert interaction._longest_increasing([1, 0], [(0,), (1,)]) == {1}
+    assert interaction._longest_increasing([1, 0], [(1,), (0,)]) == {0}
+    # Length always wins over preference.
+    assert interaction._longest_increasing([2, 0, 1], [(1,), (0,), (0,)]) == {1, 2}
+    # Preferences count in order: the first flag outweighs any number of the second.
+    assert interaction._longest_increasing([1, 0], [(1, 0), (0, 1)]) == {0}
+
+
+# NVDA in other languages
+
+
+INDONESIAN_ROLES = {
+    "document": ("dokumen", "DOCUMENT"),
+    "table": ("tabel", "TABLE"),
+    "row": ("baris", "TABLEROW"),
+    "cell": ("sel", "TABLECELL"),
+    "list": ("daftar", "LIST"),
+    "list item": ("item daftar", "LISTITEM"),
+    "edit": ("edit", "EDITABLETEXT"),
+    "unknown": ("tidak diketahui", "UNKNOWN"),
+}
+
+
+def indonesian(data):
+    """The same snapshot as NVDA in Indonesian gives it: roles translated, with NVDA's role ids."""
+    data = copy.deepcopy(data)
+    stack = [data["tree"]]
+    while stack:
+        current = stack.pop()
+        current["role"], current["roleId"] = INDONESIAN_ROLES[current["role"]]
+        stack.extend(current.get("children", []))
+    return data
+
+
+def test_lists_are_recognized_by_role_id_in_any_language():
+    before, after = whatsapp(numbered_chats(range(1, 9))), whatsapp(numbered_chats(range(9, 17)))
+    diff = diff_snapshots(indonesian(before), indonesian(after))
+    # The role is still shown as NVDA says it.
+    assert [(change.context, change.kind) for change in diff.changes] == [('tabel "Chat list"', "replaced")]
+    scrolled = diff_snapshots(
+        indonesian(whatsapp(numbered_chats(range(1, 9)))), indonesian(whatsapp(numbered_chats(range(3, 11))))
+    )
+    assert kinds(scrolled) == ["scrolled"]
+
+
+def test_dead_root_is_recognized_by_role_id_in_any_language():
+    diff = diff_snapshots(indonesian(whatsapp()), indonesian(snapshot(node("unknown"))))
+    assert diff.root_gone and diff.changes == []
+
+
+def test_role_id_takes_precedence_over_the_role_name():
+    # A role id that is not a list makes the English name "list" irrelevant, and the other way round.
+    before, after = whatsapp(numbered_chats(range(1, 9))), whatsapp(numbered_chats(range(9, 17)))
+    for snap in (before, after):
+        chat_list(snap)["roleId"] = "GROUPING"
+    assert "replaced" not in kinds(diff_snapshots(before, after))
+
+
+# Long lists: what moved within them, and what only may have been added or removed
+
+
+def chat_table(head, tail, child_count, names=None):
+    """WhatsApp Web's chat list read with its middle skipped; rows are "Chat N, Monday, hi" unless named."""
+    names = names or {}
+
+    def row(number):
+        return chat_row(number, names.get(number, f"Chat {number}, Monday, hi"))
+
+    return snapshot(
+        long_list(
+            "table", "Chat list", "ia2:100:-901", [row(n) for n in head], [row(n) for n in tail], child_count
+        )
+    )
+
+
+def test_chat_jumping_from_the_end_of_a_long_list_to_the_top_is_one_move():
+    before = chat_table([1, 2, 3, 4], [47, 48, 49, 50], 50)
+    after = chat_table([50, 1, 2, 3], [46, 47, 48, 49], 50, {50: "Chat 50, 6:10 AM, new message"})
+    diff = diff_snapshots(before, after)
+    assert [(move.subject, move.detail) for move in of_kind(diff, "moved")] == [
+        ('row "Chat 50, 6:10 AM, new message"', "from position 1 from the end to position 1")
+    ]
+    assert not of_kind(diff, "added") and not of_kind(diff, "removed")
+
+
+def test_message_moving_from_the_start_to_the_end_of_a_long_list_is_one_move():
+    diff = diff_snapshots(chat_pane([1, 2, 3], [48, 49, 50], 50), chat_pane([2, 3, 4], [49, 50, 1], 50))
+    assert summary(diff) == [("moved", 'list item "message 1"', "from position 1 to 1 from the end")]
+
+
+def test_rows_pushed_from_the_start_into_the_end_have_not_moved():
+    # Many new chats arrived at the top and chats 3 to 48 were deleted: chats 1 and 2 are now read from the
+    # end, still before chats 49 and 50.
+    before = chat_table([1, 2, 3], [48, 49, 50], 50)
+    after = chat_table([101, 102, 103], [1, 2, 49, 50], 52)
+    assert not of_kind(diff_snapshots(before, after), "moved")
+
+
+def test_the_changed_row_is_the_one_that_moved():
+    budi, ana = (1, "Budi, 5:40 AM, see you"), (2, "Ana, 5:47 AM, hello")
+    diff = diff_snapshots(whatsapp([budi, ana]), whatsapp([(2, "Ana, 6:10 AM, new message"), budi]))
+    assert [(move.subject, move.detail) for move in of_kind(diff, "moved")] == [
+        ('row "Ana, 6:10 AM, new message"', "from position 2 to 1")
+    ]
+
+
+def test_row_between_read_rows_of_a_long_list_only_appeared():
+    # Chats 1 and 2 are pinned; chat 30, in the part not read, got a message and jumped to below them.
+    before = chat_table([1, 2, 3, 4, 5], [48, 49, 50], 50)
+    after = chat_table([1, 2, 30, 3, 4], [48, 49, 50], 50, {30: "Chat 30, 6:10 AM, new"})
+    diff = diff_snapshots(before, after)
+    assert summary(diff) == [
+        ("appeared", 'row "Chat 30, 6:10 AM, new"', "new, or moved here from the part not read")
+    ]
+    assert 'read only before (row "Chat 5, Monday, hi")' in diff.not_compared[0]
+
+
+def test_row_between_read_rows_of_a_long_list_only_disappeared():
+    before = chat_table([1, 2, 3, 4, 5], [48, 49, 50], 50)
+    diff = diff_snapshots(before, chat_table([1, 2, 4, 5, 6], [48, 49, 50], 50))
+    assert summary(diff) == [
+        ("disappeared", 'row "Chat 3, Monday, hi"', "removed, or moved into the part not read")
+    ]
+
+
+def test_several_rows_that_appeared_merge_into_one_line():
+    before = chat_table([1, 2, 3], [48, 49, 50], 60)
+    after = chat_table([1, 31, 32, 33, 34, 35, 36, 2, 3], [48, 49, 50], 60)
+    (change,) = diff_snapshots(before, after).changes
+    assert (change.kind, change.subject, change.detail, change.count) == (
+        "appeared",
+        "6 row objects",
+        "new, or moved here from the part not read",
+        6,
+    )
+    assert change.examples == [
+        'row "Chat 31, Monday, hi"',
+        'row "Chat 32, Monday, hi"',
+        'row "Chat 33, Monday, hi"',
+    ]
+
+
+def test_child_count_line_gives_the_real_counts():
+    # Three messages were added at the end, and the list has only one more child: two left the unread part.
+    diff = diff_snapshots(
+        chat_pane([1, 2, 3], [47, 48, 49, 50], 50), chat_pane([1, 2, 3], [50, 51, 52, 53], 51)
+    )
+    assert [change.detail for change in of_kind(diff, "child count")] == [
+        "1 more child than before (51 now, 50 before; not all read)"
+    ]
+    assert len(of_kind(diff, "added")) == 3
+
+
+def test_objects_without_ids_next_to_the_unread_end_are_not_taken_for_renamed():
+    # Message 48 was deleted, so message 47 came into the part read from the end: not one item renamed.
+    diff = diff_snapshots(
+        chat_pane([1, 2, 3], [48, 49, 50], 50, keyed=False),
+        chat_pane([1, 2, 3], [47, 49, 50], 49, keyed=False),
+    )
+    assert not of_kind(diff, "renamed")
+    assert len(diff.not_compared) == 2
+
+
+def test_object_with_a_similar_name_where_reading_stopped_is_neither_renamed_nor_added():
+    # Read whole before; after, reading stopped at the third item, which has another name now. It may be the
+    # third item renamed, or a new one that pushed the third into the part not read.
+    def files(names, **extra):
+        return snapshot(node("list", "Files", None, [node("list item", name) for name in names], **extra))
+
+    before = files([f"message {number}" for number in range(1, 6)])
+    diff = diff_snapshots(before, files(["message 1", "message 2", "message 3!"], cut="nodes", childCount=5))
+    assert diff.changes == []
+    assert diff.not_compared == [
+        (
+            '1 object in list "Files" read only before (list item "message 3"): '
+            "it may be the object with a similar name read after, next to a part that was not read."
+        ),
+        (
+            '2 objects in list "Files" read only before (list item "message 4", list item "message 5"): '
+            "that part was not read completely after, so they may still be there."
+        ),
+        (
+            '1 object in list "Files" read only after (list item "message 3!"): '
+            "it may be the object with a similar name read before, next to a part that was not read."
+        ),
+    ]
+
+
+# Objects whose contents were read only partly
+
+
+def test_unnamed_row_read_partly_is_matched_by_what_was_read():
+    rows = [unnamed_row("Ana", "5:47 AM", "hello"), unnamed_row("Bob", "5:40 AM", "see you")]
+    rows.append(unnamed_row("Cid", "Yesterday", "ok"))
+    before = snapshot(node("table", "Chat list", None, rows))
+    partly = unnamed_row("Cid") | {"cut": "nodes", "childCount": 3}
+    after_table = node("table", "Chat list", None, [*rows[:2], partly], cut="nodes")
+    diff = diff_snapshots(before, snapshot(after_table, truncated="stopped after 9 nodes"))
+    assert diff.changes == []
+    assert diff.not_compared[1:] == [
+        (
+            '2 objects in row (no name) in table "Chat list" read only before (cell "Yesterday", cell "ok"): '
+            "that part was not read completely after, so they may still be there."
+        )
+    ]
+
+
+def test_unnamed_row_with_nothing_read_inside_is_not_added():
+    rows = [unnamed_row("Ana", "5:47 AM", "hello"), unnamed_row("Bob", "5:40 AM", "see you")]
+    rows.append(unnamed_row("Cid", "Yesterday", "ok"))
+    before = snapshot(node("table", "Chat list", None, rows))
+    empty = node("row", "", None, cut="nodes", childCount=3)
+    after_table = node("table", "Chat list", None, [*rows[:2], empty], cut="nodes")
+    diff = diff_snapshots(before, snapshot(after_table, truncated="stopped after 7 nodes"))
+    assert diff.changes == []
+    assert diff.not_compared[2] == (
+        '1 object in table "Chat list" read only after (row (no name)): '
+        "what is inside it or a similar object read before was not read completely, so it could not be matched."
+    )
+
+
+def test_unnamed_row_with_a_reading_error_inside_is_not_removed():
+    rows = [unnamed_row("Ana", "5:47 AM", "hello"), unnamed_row("Bob", "5:40 AM", "see you")]
+    rows.append(unnamed_row("Cid", "Yesterday", "ok"))
+    broken = unnamed_row("Bob") | {"cut": "error", "childCount": 3}
+    diff = diff_snapshots(
+        snapshot(node("table", "Chat list", None, rows)),
+        snapshot(node("table", "Chat list", None, [rows[0], broken, rows[2]])),
+    )
+    assert diff.changes == []
+    assert len(diff.not_compared) == 1 and 'cell "5:40 AM", cell "see you"' in diff.not_compared[0]
+
+
+def test_unnamed_rows_read_partly_with_other_contents_are_still_compared():
+    # What was read inside the new row is not in the old one, so it is another object.
+    before = snapshot(node("grouping", "Chats", None, [unnamed_row("Ana", "hello")]))
+    partly = unnamed_row("Eve") | {"cut": "error", "childCount": 2}
+    diff = diff_snapshots(before, snapshot(node("grouping", "Chats", None, [partly])))
+    assert sorted(kinds(diff)) == ["added", "removed"]
+
+
+# Objects without ids
+
+
+def test_parent_without_an_id_renamed_is_matched_through_the_objects_inside():
+    def app(pane):
+        buttons = [node("button", "Reply", "hwnd:7"), node("button", "Forward", "hwnd:8")]
+        return snapshot(node("window", "App", "hwnd:1", [node("pane", pane, None, buttons)]))
+
+    diff = diff_snapshots(app("Inbox (3)"), app("Sent"))
+    assert located(diff) == [('window "App"', "renamed", 'pane "Inbox (3)"', 'to "Sent"')]
+
+
+def test_parent_without_an_id_read_from_the_other_end_is_matched_through_the_objects_inside():
+    def item(number):
+        return node("list item", f"item {number}", None, [node("button", "Open", f"ia2:1:-{number}")])
+
+    # Reading stopped after item 6 before; after, the list was read from both ends, item 6 third from the end.
+    # Read from the start once and from the end the other time, item 6 cannot be paired by its position.
+    items = [item(number) for number in range(1, 7)]
+    before = snapshot(node("list", "Files", "ia2:1:-900", items, cut="error", childCount=8))
+    after = snapshot(long_list("list", "Files", "ia2:1:-900", items[:3], [items[5], item(7), item(8)], 8))
+    diff = diff_snapshots(before, after)
+    assert diff.changes == []
+
+
+def test_reordered_objects_without_ids_are_moved_not_added_and_removed():
+    def files(names):
+        return snapshot(node("list", "Files", None, [node("list item", name) for name in names]))
+
+    diff = diff_snapshots(files(["a.txt", "b.txt", "c.txt"]), files(["b.txt", "a.txt", "c.txt"]))
+    assert summary(diff) == [("moved", 'list item "b.txt"', "from position 2 to 1")]
+
+
+def test_long_names_show_only_the_changed_part_when_clocks_are_ignored():
+    body = "a long message about the weekend plans " * 6
+
+    def messages(clock, end):
+        return snapshot(
+            node("list", "Messages", None, [node("list item", f"Ana, {clock}, {body}{end}", "ia2:1:-1")])
+        )
+
+    diff = diff_snapshots(
+        messages("5:47 AM", "see you at 5"), messages("5:48 AM", "see you at 6"), ignore=CLOCK
+    )
+    assert summary(diff) == [("renamed", 'list item "…ans see you at 5"', 'to "…ans see you at 6"')]
+
+
+# Grouping
+
+
+def test_changes_in_unnamed_objects_that_look_alike_stay_apart_and_in_order():
+    def table(mark):
+        rows = [
+            node("row", "", "ia2:1:-1", [node("cell", "x1" + mark, "ia2:1:-11")]),
+            node("row", "Named", "ia2:1:-2", [node("cell", "y" + mark, "ia2:1:-12")]),
+            node("row", "", "ia2:1:-3", [node("cell", "x3" + mark, "ia2:1:-13")]),
+        ]
+        return snapshot(node("table", "T", None, rows))
+
+    diff = diff_snapshots(table(""), table("!"))
+    assert [(change.context, change.subject) for change in diff.changes] == [
+        ('row (no name) containing "x1!" in table "T"', 'cell "x1"'),
+        ('row "Named"', 'cell "y"'),
+        ('row (no name) containing "x3!" in table "T"', 'cell "x3"'),
+    ]
+
+
+def test_changes_in_different_unnamed_objects_are_not_merged():
+    def table(mark):
+        rows = [
+            node("row", "", f"ia2:1:-{number}", [node("cell", f"cell {number}{mark}", f"ia2:1:-{number}0")])
+            for number in range(1, 7)
+        ]
+        return snapshot(node("table", "T", None, rows))
+
+    diff = diff_snapshots(table(""), table("!"))
+    assert [change.count for change in diff.changes] == [1] * 6
+    assert len({change.context for change in diff.changes}) == 6
+    headings = [line for line in changes_markdown(diff) if line.startswith("In ")]
+    assert len(headings) == 6
+
+
+def test_unnamed_objects_with_the_same_contents_are_told_apart_by_position():
+    def table(mark):
+        rows = [
+            node("row", "", f"ia2:1:-{number}", [node("cell", "same", f"ia2:1:-{number}0", value=mark)])
+            for number in range(1, 3)
+        ]
+        return snapshot(node("table", "T", None, rows))
+
+    diff = diff_snapshots(table("a"), table("b"))
+    assert [change.context for change in diff.changes] == [
+        'row (no name) containing "same" at position 1 in table "T"',
+        'row (no name) containing "same" at position 2 in table "T"',
+    ]
