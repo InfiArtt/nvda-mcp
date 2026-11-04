@@ -1102,3 +1102,50 @@ async def test_connection_errors_reach_the_caller(tmp_path, monkeypatch):
             await dom_inspection.inspect_element(send_info(page), parts=[])
     assert raised.value.code == "refused"
     assert dom_inspection.BrowserInspectionError is cdp.BrowserInspectionError
+
+
+def test_long_values_full_of_secret_words_are_redacted_quickly():
+    # A page can put megabytes of JSON in one attribute; redaction must not stall the server.
+    import time
+
+    started = time.monotonic()
+    cleaned = dom_inspection._clean("div", {"data-page": "token" * 20000, "style": "tokentoken" * 5000})
+    assert time.monotonic() - started < 1.0
+    assert cleaned["data-page"].startswith("token")
+
+
+def test_secret_parameters_in_urls_are_redacted_up_to_the_next_parameter():
+    href = dom_inspection._clean("a", {"href": "/reset?password=correct horse battery staple&x=1"})["href"]
+    assert href == "/reset?password=[redacted]&x=1"
+    assert dom_inspection._clean("a", {"href": "/a?token=abc(def)ghi"})["href"] == "/a?token=[redacted]"
+    assert dom_inspection._clean("a", {"href": "/a?page=2&sort=new"})["href"] == "/a?page=2&sort=new"
+    # Lists and CSS still end a value at spaces and brackets.
+    srcset = dom_inspection._clean("img", {"srcset": "/a.png?token=x 1x, /b.png 2x"})["srcset"]
+    assert srcset == "/a.png?token=[redacted] 1x, /b.png 2x"
+
+
+def test_raw_html_kept_as_text_is_not_shown():
+    writer = dom_inspection._HtmlWriter(3000)
+    hidden = '<input type="hidden" name="csrf_token" value="NOSCRIPTSECRET">'
+    writer.write(
+        {
+            "nodeType": 1,
+            "localName": "div",
+            "attributes": [],
+            "childNodeCount": 2,
+            "children": [
+                {
+                    "nodeType": 1,
+                    "localName": "noscript",
+                    "attributes": [],
+                    "childNodeCount": 1,
+                    "children": [{"nodeType": 3, "nodeValue": hidden}],
+                },
+                {"nodeType": 1, "localName": "iframe", "attributes": [], "childNodeCount": 0},
+            ],
+        }
+    )
+    html = "\n".join(writer.lines)
+    assert "NOSCRIPTSECRET" not in html
+    assert "<noscript><!-- noscript contents not shown --></noscript>" in html
+    assert "<iframe></iframe>" in html

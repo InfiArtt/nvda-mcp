@@ -550,7 +550,7 @@ async def test_unanswered_approval_times_out_without_retrying(tmp_path):
     assert error.code == "approvalTimedOut"
     assert '"Allow remote debugging?"' in error.message
     assert "0.2 seconds" in error.message
-    assert "Cancel has focus: press Tab to move to Allow" in error.message
+    assert "Cancel has focus: press Shift+Tab once to move to Allow" in error.message
     assert "older ones" in error.message
     assert "will not try again" in error.message
     assert len(announce.said) == 1

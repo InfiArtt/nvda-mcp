@@ -60,13 +60,15 @@ DOCUMENT_FRAGMENT_NODE = 11
 
 # Attribute names that suggest a secret value.
 _SECRET_NAME = re.compile(r"token|secret|password|passwd|nonce|csrf|xsrf", re.IGNORECASE)
-# Query or fragment parameters with such names, as in ?access_token=..., anywhere in a value: absolute or
-# relative URLs, url(...) in a style, or a value that is a query itself. The value ends where a URL would.
-_SECRET_PARAMETER = re.compile(
-    r"((?:^|[?&#;])[^=&#;?\s]*(?:token|secret|password|passwd|nonce|csrf|xsrf)[^=&#;?\s]*=)"
-    r"[^&#;\s\"'()<>]*",
-    re.IGNORECASE,
-)
+# Query or fragment parameters, as in ?access_token=..., anywhere in a value: absolute or relative URLs,
+# url(...) in a style, or a value that is a query itself. Only those whose name suggests a secret are redacted.
+# The name has no alternation inside it, so matching stays linear however long and odd the value is.
+# In a URL attribute a value runs to the next parameter; elsewhere (lists, CSS) it also ends at spaces,
+# quotes and brackets.
+_PARAMETER_IN_URL = re.compile(r"(?:^|(?<=[?&#;]))([^=&#;?\s]{0,200})=([^&#;]*)")
+_PARAMETER_ELSEWHERE = re.compile(r"(?:^|(?<=[?&#;]))([^=&#;?\s]{0,200})=([^&#;\s\"'()<>]*)")
+# URL attributes whose value is a list or a description rather than one URL.
+_LIST_ATTRIBUTES = frozenset({"srcset", "imagesrcset", "ping"})
 _URL_ATTRIBUTES = frozenset(
     {
         "href",
@@ -89,6 +91,8 @@ _URL_VALUE = re.compile(
     r"^\s*(?:(?:https?|wss?|ftp|file|blob|data|javascript|chrome-extension):|//)", re.IGNORECASE
 )
 _DATA_URI = re.compile(rf"data:[^\s\"'()]{{{MAX_URL_CHARS},}}")
+# Elements whose contents are another document's markup, or text the browser keeps as raw HTML.
+_CONTENTS_NOT_SHOWN = frozenset({"template", "noscript", "noembed", "noframes", "xmp", "iframe", "plaintext"})
 _VOID_ELEMENTS = frozenset(
     {
         "area",
@@ -219,8 +223,19 @@ def _css_string(value: str) -> str:
 # Cleaning what the page says ----------------------------------------------------------------------------------
 
 
+def _redact_parameters(name: str, value: str) -> str:
+    one_url = name in _URL_ATTRIBUTES and name not in _LIST_ATTRIBUTES
+    pattern = _PARAMETER_IN_URL if one_url else _PARAMETER_ELSEWHERE
+
+    def redact(found: re.Match[str]) -> str:
+        key = found.group(1)
+        return f"{key}={REDACTED}" if _SECRET_NAME.search(key) else found.group(0)
+
+    return pattern.sub(redact, value)
+
+
 def _shorten_urls(name: str, value: str) -> str:
-    value = _SECRET_PARAMETER.sub(r"\1" + REDACTED, value)
+    value = _redact_parameters(name, value)
     if name in _URL_ATTRIBUTES or _URL_VALUE.match(value):
         value = _cut(value, MAX_URL_CHARS)
     return _DATA_URI.sub(lambda found: _cut(found.group(0), MAX_URL_CHARS), value)
@@ -850,8 +865,12 @@ class _HtmlWriter:
         if tag in _VOID_ELEMENTS:
             self.add(indent, start)
             return
-        if tag == "template":
-            self.add(indent, f"{start}<!-- template contents not shown --></{tag}>")
+        if tag in _CONTENTS_NOT_SHOWN:
+            # Raw HTML kept as text (noscript and the like) can hold hidden inputs and tokens.
+            if tag == "template" or node.get("children") or node.get("childNodeCount"):
+                self.add(indent, f"{start}<!-- {tag} contents not shown --></{tag}>")
+            else:
+                self.add(indent, f"{start}</{tag}>")
             return
         count = node.get("childNodeCount") or 0
         if "children" not in node and count:

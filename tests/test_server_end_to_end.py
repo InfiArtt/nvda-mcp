@@ -734,3 +734,17 @@ async def test_find_html_searches_the_page_nvda_is_in(connect, monkeypatch):
     assert result == "no elements"
     assert seen == ["[data-icon]"]
     assert window.calls["webElementInfo"] == [{"target": "focus", "document": True}]
+
+
+async def test_html_tools_read_the_control_again_when_asked(connect, monkeypatch):
+    window = connect(FakeWindow([("OK", "button")]))
+
+    async def fake_inspect(info, **options):
+        fresh = await options["refresh"]()
+        return {"page": {"url": fresh["documentUrl"]}}
+
+    monkeypatch.setattr(server.dom_inspection, "inspect_element", fake_inspect)
+    monkeypatch.setattr(server.dom_inspection, "element_markdown", lambda result: result["page"]["url"])
+    async with Client(server.mcp) as client:
+        await client.call_tool("nvda_inspect_html", {"id": 5})
+    assert window.calls["webElementInfo"] == [{"id": 5}, {"id": 5}]

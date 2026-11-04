@@ -336,8 +336,8 @@ def approval_timed_out(browser: Browser, seconds: float) -> BrowserInspectionErr
         f'{browser.name}\'s "Allow remote debugging?" dialog was not answered within {seconds:g} seconds, '
         "so NVDA MCP stopped waiting and will not try again by itself. That dialog may still be open, and "
         "answering it now does nothing: choose Cancel in it, and in any older ones left from earlier attempts. "
-        "When you are ready, ask again. When the new dialog appears, Cancel has focus: press Tab to move to "
-        "Allow, then press Space.",
+        "When you are ready, ask again. When the new dialog appears, Cancel has focus: press Shift+Tab once to "
+        "move to Allow, then press Enter.",
     )
 
 
@@ -355,7 +355,7 @@ def refused(browser: Browser, status: int | None = 403) -> BrowserInspectionErro
     return BrowserInspectionError(
         "refused",
         f"{reason} NVDA MCP will not try again by itself. To allow it, ask again and choose Allow when the "
-        "dialog appears (Cancel has focus: press Tab to move to Allow). If remote debugging was turned off, "
+        "dialog appears (Cancel has focus: press Shift+Tab once to move to Allow). If remote debugging was turned off, "
         f"turn it on again first. {_turn_on_steps(browser)}",
     )
 
