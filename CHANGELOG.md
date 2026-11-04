@@ -48,8 +48,8 @@ install them together.
   so a container's id still works after searching inside it.
 - When `nvda_find_objects` searches several parts of a window, such as a web page and then the browser
   around it, they share one 3-second time limit instead of 3 seconds each.
-- `nvda_trace_events` no longer records which character a typed-character event carried, so what you type,
-  passwords included, stays out of traces.
+- `nvda_trace_events` no longer records which character a typed-character event carried, so passwords stay
+  out of traces (NVDA only says "star" for them). What NVDA speaks as you type in other fields is still recorded.
 - The bridge protocol version is now 6. Update the add-on and the server together.
 
 ### Fixed

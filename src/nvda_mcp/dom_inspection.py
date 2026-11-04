@@ -1073,15 +1073,20 @@ async def inspect_element(
 
 
 def _text_of(node: dict[str, Any], limit: int = 80) -> str:
+    """An element's text, leaving out script and style source and raw HTML kept as text (noscript and the
+    like), which can hold tokens and hidden inputs, as the HTML part does."""
     texts: list[str] = []
+    hidden = _DROPPED_ELEMENTS | _CONTENTS_NOT_SHOWN
 
     def walk(children: Iterable[dict[str, Any]]) -> None:
         for child in children:
             if child.get("nodeType") == TEXT_NODE:
                 texts.append(str(child.get("nodeValue") or ""))
-            elif child.get("nodeType") == ELEMENT_NODE and _tag(child) not in _DROPPED_ELEMENTS:
+            elif child.get("nodeType") == ELEMENT_NODE and _tag(child) not in hidden:
                 walk(child.get("children") or [])
 
+    if _tag(node) in hidden:
+        return ""
     walk(node.get("children") or [])
     return _one_line(" ".join(texts), limit)
 

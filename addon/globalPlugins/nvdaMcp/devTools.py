@@ -468,6 +468,12 @@ class DevTools:
 			treeParams = params.get("tree")
 			if treeParams is not None and not isinstance(treeParams, dict):
 				raise BridgeError("badParams", 'tree must be an object, such as {} or {"within": 5}.')
+			recording = None
+			if treeParams is not None:
+				if params.get("backgroundWindow") is not None and treeParams.get("within") is None:
+					treeParams = {**treeParams, "window": params["backgroundWindow"]}
+				# Before tracing starts, so a stale id or a closed window leaves nothing running.
+				recording = wxCallOnMain(self.recorder.resolve, treeParams)
 			startId = self.tracer.log.lastId
 			background = wxCallOnMain(
 				self.tracer.start, eventNames, params.get("app") or None, params.get("backgroundWindow")
@@ -476,10 +482,7 @@ class DevTools:
 			if background is not None:
 				result["background"] = background
 			self._traceRecording = None
-			if treeParams is not None:
-				if params.get("backgroundWindow") is not None and treeParams.get("within") is None:
-					treeParams = {**treeParams, "window": params["backgroundWindow"]}
-				recording = wxCallOnMain(self.recorder.resolve, treeParams)
+			if recording is not None:
 				self._traceRecording = wxCallOnMain(self.recorder.begin, recording, False)
 				before = self._traceRecording.before or {}
 				result["tree"] = {

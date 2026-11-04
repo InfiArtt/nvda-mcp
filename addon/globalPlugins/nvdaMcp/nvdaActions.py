@@ -9,6 +9,7 @@ so they must run on NVDA's main thread; :class:`NvdaActions` takes care of that.
 """
 
 import ctypes
+import re
 import threading
 import time
 from collections import deque
@@ -404,6 +405,8 @@ class _IAccessibleEx(IUnknown):
 
 
 _IID_IACCESSIBLE = GUID("{618736E0-3C3D-11CF-810C-00AA00389B71}")
+# An address with a scheme, such as https://..., data:... or about:blank.
+_ABSOLUTE_URL = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:")
 
 
 def _chromiumRuntimeId(obj: NVDAObject) -> list[int] | None:
@@ -423,7 +426,7 @@ def _documentUrl(document: NVDAObject) -> str | None:
 		value = document.IAccessibleObject.accValue(document.IAccessibleChildID)
 	except Exception:  # noqa: BLE001
 		return None
-	return value if isinstance(value, str) and "://" in value else None
+	return value if isinstance(value, str) and _ABSOLUTE_URL.match(value) else None
 
 
 def _apiName(obj: NVDAObject) -> str:

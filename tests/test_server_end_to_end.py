@@ -153,7 +153,7 @@ class FakeWindow:
             raise BridgeError(
                 "browserInspectionDisabled", "Reading web pages through remote debugging is off."
             )
-        return WEB_ELEMENT
+        return getattr(self, "web_element", WEB_ELEMENT)
 
     def speak_after_action(self, text, params):
         start = self.speech.lastId
@@ -748,3 +748,38 @@ async def test_html_tools_read_the_control_again_when_asked(connect, monkeypatch
     async with Client(server.mcp) as client:
         await client.call_tool("nvda_inspect_html", {"id": 5})
     assert window.calls["webElementInfo"] == [{"id": 5}, {"id": 5}]
+
+
+def test_hidden_spoken_events_are_not_called_silent():
+    events = [{"id": number, "event": "typedCharacter", "spoken": "x"} for number in range(40)]
+    lines = server._recorded_events_markdown({"events": events})
+    assert lines[0] == "## Events NVDA handled: 40, 30 shown"
+    assert lines[-1] == "Not shown, with speech: 10 typedCharacter."
+
+
+async def test_html_tools_stop_before_connecting_when_the_page_address_is_unknown(connect, monkeypatch):
+    window = connect(FakeWindow([("OK", "button")]))
+    window.web_element = {**WEB_ELEMENT, "documentUrl": None}
+    called = []
+
+    async def fake_inspect(info, **options):
+        called.append(info)
+        return {}
+
+    monkeypatch.setattr(server.dom_inspection, "inspect_element", fake_inspect)
+    async with Client(server.mcp) as client:
+        result = await client.call_tool("nvda_inspect_html", {"id": 5})
+    assert result.is_error and "noPage" in text_of(result)
+    assert called == []
+
+
+async def test_html_tools_label_json_as_untrusted(connect, monkeypatch):
+    connect(FakeWindow([("OK", "button")]))
+
+    async def fake_inspect(info, **options):
+        return {"page": {"url": info["documentUrl"]}}
+
+    monkeypatch.setattr(server.dom_inspection, "inspect_element", fake_inspect)
+    async with Client(server.mcp) as client:
+        result = text_of(await client.call_tool("nvda_inspect_html", {"id": 5, "response_format": "json"}))
+    assert '"notice": "Untrusted page content' in result

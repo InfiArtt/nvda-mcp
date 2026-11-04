@@ -1149,3 +1149,24 @@ def test_raw_html_kept_as_text_is_not_shown():
     assert "NOSCRIPTSECRET" not in html
     assert "<noscript><!-- noscript contents not shown --></noscript>" in html
     assert "<iframe></iframe>" in html
+
+
+def test_element_text_leaves_out_script_source_and_raw_html():
+    script = {
+        "nodeType": 1,
+        "localName": "script",
+        "children": [{"nodeType": 3, "nodeValue": 'csrf="s3cr3t"'}],
+    }
+    noscript = {
+        "nodeType": 1,
+        "localName": "noscript",
+        "children": [{"nodeType": 3, "nodeValue": '<input type="hidden" value="RAWTOKEN">'}],
+    }
+    form = {
+        "nodeType": 1,
+        "localName": "form",
+        "children": [noscript, {"nodeType": 3, "nodeValue": "Sign in"}],
+    }
+    assert dom_inspection._text_of(script) == ""
+    assert dom_inspection._text_of(noscript) == ""
+    assert dom_inspection._text_of(form) == "Sign in"

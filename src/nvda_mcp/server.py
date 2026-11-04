@@ -547,15 +547,23 @@ def _recorded_events_markdown(recording: dict[str, Any]) -> list[str]:
         + (f", {len(shown)} shown" if len(shown) < len(entries) else "")
     ]
     lines += [_event_line(entry) for entry in shown]
-    hidden: dict[str, int] = {}
+    spoken_ids = {entry["id"] for entry in spoken}
+    hidden_spoken: dict[str, int] = {}
+    hidden_quiet: dict[str, int] = {}
     for entry in entries:
         if entry["id"] not in shown_ids:
-            hidden[entry["event"]] = hidden.get(entry["event"], 0) + 1
-    if hidden:
-        counts = ", ".join(
-            f"{count} {name}" for name, count in sorted(hidden.items(), key=lambda item: -item[1])
+            counts = hidden_spoken if entry["id"] in spoken_ids else hidden_quiet
+            counts[entry["event"]] = counts.get(entry["event"], 0) + 1
+
+    def counted(counts: dict[str, int]) -> str:
+        return ", ".join(
+            f"{count} {name}" for name, count in sorted(counts.items(), key=lambda item: -item[1])
         )
-        lines.append(f"Not shown, NVDA said nothing for them: {counts}.")
+
+    if hidden_spoken:
+        lines.append(f"Not shown, with speech: {counted(hidden_spoken)}.")
+    if hidden_quiet:
+        lines.append(f"Not shown, NVDA said nothing for them: {counted(hidden_quiet)}.")
     if recording.get("eventsDropped"):
         lines.append(
             f"The {recording['eventsDropped']} oldest events were no longer in NVDA MCP's event log."
@@ -973,6 +981,12 @@ async def _web_element_info(params: dict[str, Any]) -> tuple[dict[str, Any], Any
     """What the add-on knows about a web page's control, a callback that has NVDA announce a connection,
     and one that reads it again (the browser's automation bar moves the page once a connection is allowed)."""
     info = await _call("webElementInfo", params)
+    if not info.get("documentUrl"):
+        # Checked before connecting, so the user is not asked to allow a connection that cannot help.
+        raise ToolError(
+            "noPage: NVDA did not report the address of the page this control is in, so its tab cannot be found. "
+            "Move NVDA into the page's content and try again."
+        )
 
     async def announce(_text: str) -> None:
         # NVDA says it in the user's language before the browser's own question appears.
@@ -1041,7 +1055,7 @@ async def nvda_inspect_html(
     except dom_inspection.BrowserInspectionError as error:
         raise ToolError(f"{error.code}: {error.message}")
     if response_format == ResponseFormat.JSON:
-        return _json(result)
+        return _json({"notice": dom_inspection.UNTRUSTED_NOTICE, **result})
     return _truncate(dom_inspection.element_markdown(result))
 
 
@@ -1091,7 +1105,7 @@ async def nvda_find_html(
     except dom_inspection.BrowserInspectionError as error:
         raise ToolError(f"{error.code}: {error.message}")
     if response_format == ResponseFormat.JSON:
-        return _json(result)
+        return _json({"notice": dom_inspection.UNTRUSTED_NOTICE, **result})
     return _truncate(dom_inspection.found_markdown(result))
 
 
