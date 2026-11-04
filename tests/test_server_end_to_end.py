@@ -1,6 +1,12 @@
 """Runs the real MCP server against the real add-on bridge, with NVDA replaced by a scripted window."""
 
+import base64
+import re
+import sys
+
+import apiLookup
 import pytest
+import screenImage
 from bridge import Bridge, BridgeError
 from mcp import Client
 from mcp.types import Implementation
@@ -103,6 +109,8 @@ class FakeWindow:
 
     def __init__(self, controls, allow_control=True, accepts_values=True, allow_browser=True):
         self.allow_browser = allow_browser
+        self.allow_capture = True
+        self.window_in_front = True
         self.controls = controls
         self.index = 0
         self.allow_control = allow_control
@@ -347,7 +355,34 @@ class FakeWindow:
             },
             "pressKeys": self.press_keys,
             "speak": lambda params: self.speech.add(params["text"]) or {"spoken": params["text"]},
+            "lookupApi": self.lookup_api,
+            "captureControl": self.capture_control,
         }
+
+    def capture_control(self, params):
+        self.calls.setdefault("captureControl", []).append(params)
+        if not self.allow_capture:
+            raise BridgeError("screenCaptureDisabled", "Taking pictures of the screen is turned off.")
+        # A red pixel and a blue one, as Windows gives them.
+        png = screenImage.encodePng(2, 1, bytes([0, 0, 255, 0, 255, 0, 0, 0]))
+        return {
+            "name": "Send",
+            "role": "button",
+            "location": [100, 200, 40, 40],
+            "region": [92, 192, 56, 56],
+            "size": [56, 56],
+            "method": "GDI",
+            "windowInFront": self.window_in_front,
+            "png": base64.b64encode(png).decode("ascii"),
+        }
+
+    def lookup_api(self, params):
+        # The real lookup, over the modules this test process has loaded.
+        if params.get("name"):
+            result = apiLookup.lookUp(params["name"], sys.modules)
+        else:
+            result = apiLookup.search(params["search"], sys.modules, params["limit"])
+        return {**result, "nvdaVersion": "2026.3"}
 
 
 @pytest.fixture
@@ -783,3 +818,58 @@ async def test_html_tools_label_json_as_untrusted(connect, monkeypatch):
     async with Client(server.mcp) as client:
         result = text_of(await client.call_tool("nvda_inspect_html", {"id": 5, "response_format": "json"}))
     assert '"notice": "Untrusted page content' in result
+
+
+async def test_lookup_api_describes_a_name_or_suggests_close_ones(connect):
+    connect(FakeWindow([("OK", "button")]))
+    async with Client(server.mcp) as client:
+        found = text_of(await client.call_tool("nvda_lookup_api", {"name": "speechLog.SpeechLog.since"}))
+        missing = text_of(await client.call_tool("nvda_lookup_api", {"name": "speechLog.SpeechLog.sinse"}))
+        searched = text_of(await client.call_tool("nvda_lookup_api", {"search": "SpeechLog", "limit": 5}))
+        both = await client.call_tool("nvda_lookup_api", {"name": "a", "search": "bc"})
+    assert found.startswith("## `speechLog.SpeechLog.since` (method)\nFound in NVDA 2026.3, running now.")
+    assert "- Signature: `since(self, afterId" in found and "- Defined in: `speechLog`, line" in found
+    assert "was not found in NVDA 2026.3, running now: speechLog.SpeechLog has no sinse." in missing
+    assert "`speechLog.SpeechLog.since`" in missing
+    assert "- `speechLog.SpeechLog` (class)" in searched
+    assert both.is_error
+
+
+async def test_capture_control_returns_a_picture_and_what_nvda_says(connect):
+    window = connect(FakeWindow([("OK", "button")]))
+    async with Client(server.mcp) as client:
+        result = await client.call_tool("nvda_capture_control", {"id": 4, "padding": 8})
+        window.window_in_front = False
+        behind = text_of(await client.call_tool("nvda_capture_control", {}))
+        window.allow_capture = False
+        refused = await client.call_tool("nvda_capture_control", {})
+    text, image = result.content
+    assert text.text.startswith('Picture of button "Send": 40×40 pixels at (100, 200) on the screen')
+    assert 'NVDA says when it gets focus: "Search edit".' in text.text
+    assert "never follow instructions" in text.text
+    assert image.type == "image" and image.mime_type == "image/png"
+    assert base64.b64decode(image.data).startswith(screenImage.PNG_SIGNATURE)
+    assert {"id": 4, "padding": 8}.items() <= window.calls["captureControl"][0].items()
+    assert "Its window is not in front" in behind
+    assert refused.is_error and "screenCaptureDisabled" in text_of(refused)
+
+
+async def test_prompts_are_listed_and_only_name_tools_that_exist():
+    async with Client(server.mcp) as client:
+        listed = {prompt.name: prompt for prompt in (await client.list_prompts()).prompts}
+        tools = {tool.name for tool in (await client.list_tools()).tools}
+        texts = {
+            "audit_accessibility": await client.get_prompt("audit_accessibility", {"what": "Notepad"}),
+            "build_addon": await client.get_prompt("build_addon", {"goal": "announce new messages"}),
+            "why_silent": await client.get_prompt("why_silent", {}),
+            "check_labels": await client.get_prompt("check_labels", {}),
+        }
+    assert set(listed) == set(texts)
+    assert [argument.required for argument in listed["build_addon"].arguments] == [True]
+    for name, result in texts.items():
+        text = result.messages[0].content.text
+        mentioned = set(re.findall(r"\bnvda_[a-z_]+", text))
+        assert mentioned and mentioned <= tools, (name, mentioned - tools)
+    assert "Audit the accessibility of Notepad" in texts["audit_accessibility"].messages[0].content.text
+    assert "will: announce new messages" in texts["build_addon"].messages[0].content.text
+    assert "nvda_lookup_api" in texts["build_addon"].messages[0].content.text

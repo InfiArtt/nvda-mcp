@@ -9,8 +9,10 @@ Functions in this module touch NVDAObjects and NVDA's internals,
 so most of them run on NVDA's main thread through :meth:`NvdaActions.onMain`.
 """
 
+import base64
 import os
 import re
+import sys
 import time
 from typing import Any
 
@@ -27,16 +29,19 @@ import scriptHandler
 import speech
 import textInfos
 import tones
+import versionInfo
 import winUser
 import wx
 from braille.extensions import pre_writeCells
 from gui.guiHelper import wxCallOnMain
 from keyboardHandler import KeyboardInputGesture
+from logHandler import log
 from NVDAObjects import NVDAObject
 from speech.extensions import speechCanceled
 
-from . import nvdaLog, windows
+from . import apiLookup, nvdaLog, screenCapture, screenImage, windows
 from .bridge import BridgeError, Handler
+from .configSpec import CONFIG_SECTION
 from .interactionRecorder import InteractionRecorder, Recording, rootLabel
 from .nvdaActions import (
 	_LAYOUT_ROLES,
@@ -61,6 +66,12 @@ NEARBY_SPEECH_BEFORE_SECONDS = 0.5
 MAX_DETAIL_CHARS = 200
 MAX_PREVIEW_OBJECTS = 100
 MAX_SCRIPTS = 300
+# Pictures larger than this are shrunk, so that they stay readable to the client and quick to send.
+MAX_CAPTURE_SIDE = 1600
+# Small controls, such as icon buttons, are enlarged up to this size, at most MAX_CAPTURE_ZOOM times.
+MIN_CAPTURE_SIDE = 200
+MAX_CAPTURE_ZOOM = 4.0
+MAX_CAPTURE_PADDING = 200
 OUTPUT_KINDS = ("beep", "sound", "braille", "speechCanceled")
 # Events NVDA gets from the Windows accessibility APIs, which eventHandler.requestEvents can let through
 # from a background window. Others, such as gainFocus, only matter in the foreground.
@@ -402,6 +413,21 @@ class OutputRecorder:
 		self.log.add("speechCanceled")
 
 
+def _sourceOf(moduleName: str | None, line: int | None) -> dict[str, str]:
+	"""Where a module's code is: NVDA's source on GitHub for NVDA's own modules, the file for add-ons."""
+	module = sys.modules.get(moduleName) if moduleName else None
+	path = getattr(module, "__file__", None)
+	if module is None or not isinstance(path, str):
+		return {}
+	inNvda = os.path.normcase(path).startswith(os.path.normcase(globalVars.appDir))
+	if inNvda and apiLookup.isOwnModule(moduleName):
+		url = apiLookup.sourceUrl(moduleName, hasattr(module, "__path__"), line, versionInfo.version)
+		return {"source": url} if url else {}
+	if not inNvda and os.path.isfile(path):
+		return {"file": path}
+	return {}
+
+
 class DevTools:
 	def __init__(self, speechLog: SpeechLog, actions: NvdaActions) -> None:
 		self._speechLog = speechLog
@@ -434,6 +460,87 @@ class DevTools:
 			"reloadPlugins": self._reloadPlugins,
 			"previewSpeech": onMain(self._previewSpeech),
 			"getSettings": onMain(self._getSettings),
+			"lookupApi": self._lookupApi,
+			"captureControl": onMain(self._captureControl),
+		}
+
+	def _lookupApi(self, params: dict[str, Any]) -> dict[str, Any]:
+		name = params.get("name")
+		text = params.get("search")
+		if bool(name) == bool(text) or not isinstance(name or text, str):
+			raise BridgeError(
+				"badParams",
+				"Pass either name, such as controlTypes.Role.BUTTON, or search, part of a name to find.",
+			)
+		if name:
+			# Looking at a name can reach NVDA objects, which belong to the main thread.
+			result = wxCallOnMain(apiLookup.lookUp, name, sys.modules)
+			if result.get("found"):
+				result.update(_sourceOf(result.get("module"), result.get("line")))
+		else:
+			# Searching only reads module and class dictionaries, so it leaves NVDA free meanwhile.
+			result = apiLookup.search(text, sys.modules, min(max(int(params.get("limit", 30)), 1), 100))
+		result["nvdaVersion"] = versionInfo.version
+		return result
+
+	def _captureControl(self, params: dict[str, Any]) -> dict[str, Any]:
+		if not config.conf[CONFIG_SECTION]["allowScreenCapture"]:
+			raise BridgeError(
+				"screenCaptureDisabled",
+				"Taking pictures of the screen is turned off. Ask the user to check "
+				'"Let MCP clients take pictures of controls on the screen" in NVDA Settings, NVDA MCP category, '
+				"if they want it.",
+			)
+		obj = self._target(params)
+		states = _safeGet(obj, "states") or set()
+		location = _safeGet(obj, "location")
+		if controlTypes.State.OFFSCREEN in states:
+			raise BridgeError(
+				"notOnScreen",
+				"NVDA reports this control as off screen. Bring it into view first, for example by focusing it.",
+			)
+		padding = min(max(int(params.get("padding", 8)), 0), MAX_CAPTURE_PADDING)
+		region = (
+			screenImage.captureRegion(tuple(location), padding, screenCapture.virtualScreen())
+			if location and controlTypes.State.INVISIBLE not in states
+			else None
+		)
+		if region is None:
+			raise BridgeError(
+				"notOnScreen",
+				"NVDA reports no position on the screen for this control, so there is nothing to take a picture of.",
+			)
+		try:
+			width, height, pixels, method = screenCapture.captureRegion(
+				*region, screenImage.scaleFor(region, MAX_CAPTURE_SIDE, MIN_CAPTURE_SIDE, MAX_CAPTURE_ZOOM)
+			)
+		except Exception as error:  # noqa: BLE001 - Windows Graphics Capture raises RuntimeError and others
+			log.debugWarning("Could not take a picture of the screen", exc_info=True)
+			raise BridgeError(
+				"captureFailed",
+				f"NVDA could not take the picture ({error}). With Screen Curtain on, NVDA needs Windows Graphics "
+				"Capture, which this Windows may not offer; the user can turn Screen Curtain off for a moment "
+				"with NVDA+Control+Escape.",
+			)
+		png = screenImage.encodePng(width, height, pixels)
+		appName = _appNameOf(obj)
+		if config.conf[CONFIG_SECTION]["logActions"]:
+			try:
+				self._actions._actionLog.record("screenCapture", _safeGet(obj, "name"), app=appName)
+			except OSError:
+				log.error("NVDA MCP could not write its action log", exc_info=True)
+		window = _safeGet(obj, "windowHandle")
+		foreground = winUser.getForegroundWindow()
+		inFront = bool(window) and winUser.getAncestor(window, winUser.GA_ROOT) == winUser.getAncestor(
+			foreground, winUser.GA_ROOT
+		)
+		return {
+			**describeObject(obj),
+			"region": list(region),
+			"size": [width, height],
+			"method": method,
+			"windowInFront": inFront,
+			"png": base64.b64encode(png).decode("ascii"),
 		}
 
 	def _getLog(self, params: dict[str, Any]) -> dict[str, Any]:

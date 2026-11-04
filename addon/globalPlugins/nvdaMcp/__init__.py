@@ -119,6 +119,11 @@ class NvdaMcpSettingsPanel(SettingsPanel):
 			),
 		)
 		self.allowBrowserInspectionCheckBox.SetValue(sectionConfig["allowBrowserInspection"])
+		self.allowScreenCaptureCheckBox = helper.addItem(
+			# Translators: A checkbox in the NVDA MCP settings panel. The pictures are sent to the AI assistant.
+			wx.CheckBox(self, label=_("Let MCP clients take pictures of controls on the &screen")),
+		)
+		self.allowScreenCaptureCheckBox.SetValue(sectionConfig["allowScreenCapture"])
 		self.historySizeSpin = helper.addLabeledControl(
 			# Translators: A spin control in the NVDA MCP settings panel.
 			_("Number of spoken &messages to remember:"),
@@ -161,6 +166,7 @@ class NvdaMcpSettingsPanel(SettingsPanel):
 		sectionConfig["allowedApps"] = self.allowedAppsEdit.GetValue().strip()
 		sectionConfig["logActions"] = self.logActionsCheckBox.IsChecked()
 		sectionConfig["allowBrowserInspection"] = self.allowBrowserInspectionCheckBox.IsChecked()
+		sectionConfig["allowScreenCapture"] = self.allowScreenCaptureCheckBox.IsChecked()
 		sectionConfig["speechHistorySize"] = self.historySizeSpin.GetValue()
 
 	def postSave(self) -> None:

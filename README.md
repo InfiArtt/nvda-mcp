@@ -109,6 +109,8 @@ In NVDA's Settings, **NVDA MCP** category:
 - **Keep a log of every action MCP clients take** (on by default), in `%APPDATA%\nvda\nvdaMcp\actions.log`.
 - **Let MCP clients read the HTML of web pages through the browser's remote debugging** (off by default),
   for developers of add-ons for web apps. The browser also asks you before every new connection.
+- **Let MCP clients take pictures of controls on the screen** (off by default), for developers who want
+  to compare what a control looks like with what NVDA says for it. It works with Screen Curtain on.
 - **Number of spoken messages to remember** (500 by default).
 
 Commands in Input Gestures, NVDA MCP category (no keys assigned by default):
@@ -138,6 +140,10 @@ If you let it read web pages' HTML (off by default), note that turning on remote
 lets a program you allow reach every tab and signed-in site in that browser, and lets other programs on
 your computer ask to connect too. NVDA MCP only reads the page you are working with, never runs scripts
 or reads cookies, and NVDA tells you before it connects. Turn remote debugging off when you are done.
+
+If you let it take pictures of controls (off by default), each picture shows that part of your screen,
+whatever is there, and goes to the assistant's provider like everything else it reads.
+Every picture is written to the action log.
 
 - Before you work with something private, such as banking, passwords or personal messages,
   close your assistant or turn off *Let MCP clients connect* in NVDA's settings.
@@ -185,11 +191,17 @@ For developers of add-ons and accessible applications:
 | `nvda_get_log` | NVDA's log, filtered by level and text; IO entries (keys typed) only when asked |
 | `nvda_get_output_history` | Beeps, sounds, braille output and speech being cut off, optionally merged with speech |
 | `nvda_get_dev_info` | Developer info for a control, like NVDA+F1 |
+| `nvda_lookup_api` | Check a name in the running NVDA's Python code before using it in an add-on: whether it exists, what it is, its signature, docstring and members, a link to NVDA's source, close names when it does not exist; or search for names |
+| `nvda_capture_control` | A picture of a control on the screen next to what NVDA says for it, to find icons and visible text the accessible name leaves out |
 | `nvda_list_scripts` | NVDA commands available where focus is, with their keys; or which command a key runs |
 | `nvda_run_script` | Run an NVDA command by name, whatever key it is assigned to |
 | `nvda_reload_plugins` | Reload add-ons and app modules from disk, like NVDA+control+F3 |
 | `nvda_get_settings` | Read NVDA's settings as they apply now; values that look like secrets are hidden |
 | `nvda_run_scenario` | Run keys and typing, record what NVDA said after each step, and compare with a baseline file |
+
+Ready-made prompts walk the assistant through common developer tasks with these tools, in the right order:
+`audit_accessibility`, `build_addon`, `why_silent` and `check_labels`. Clients that support MCP prompts offer
+them as commands; in Claude Code, for example, type `/mcp__nvda__audit_accessibility`.
 
 Action tools such as `nvda_press_keys` and `nvda_activate_object` take `record`: the result then also says
 what the action changed in the accessibility tree (controls added, removed, renamed or moved, values

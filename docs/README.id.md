@@ -116,6 +116,8 @@ Di Pengaturan NVDA, kategori **NVDA MCP**:
 - **Catat setiap aksi yang dilakukan klien MCP** (menyala secara bawaan), di `%APPDATA%\nvda\nvdaMcp\actions.log`.
 - **Izinkan klien MCP membaca HTML halaman web melalui remote debugging browser** (mati secara bawaan),
   untuk pengembang add-on aplikasi web. Browser juga bertanya kepada Anda sebelum setiap sambungan baru.
+- **Izinkan klien MCP mengambil gambar kontrol di layar** (mati secara bawaan), untuk pengembang yang ingin
+  membandingkan tampilan sebuah kontrol dengan apa yang diucapkan NVDA. Tetap berfungsi saat Tirai Layar menyala.
 - **Jumlah ucapan yang diingat** (500 secara bawaan).
 
 Perintah di Gestur Masukan, kategori NVDA MCP (tanpa tombol bawaan):
@@ -147,6 +149,10 @@ login di browser itu, dan program lain di komputer Anda juga bisa meminta tersam
 halaman yang sedang Anda kerjakan, tidak pernah menjalankan skrip atau membaca cookie, dan NVDA memberi tahu
 sebelum tersambung. Matikan remote debugging setelah selesai.
 
+Jika Anda mengizinkannya mengambil gambar kontrol (mati secara bawaan), setiap gambar memperlihatkan bagian
+layar itu, apa pun isinya, dan dikirim ke penyedia asisten seperti semua yang dibacanya.
+Setiap gambar dicatat di catatan aksi.
+
 - Sebelum mengerjakan sesuatu yang pribadi, seperti perbankan, kata sandi, atau pesan pribadi,
   tutup asisten Anda atau matikan *Izinkan klien MCP terhubung* di pengaturan NVDA.
 - Riwayat ucapan NVDA hanya disimpan di memori, dan terhapus saat NVDA dimulai ulang.
@@ -155,6 +161,10 @@ sebelum tersambung. Matikan remote debugging setelah selesai.
 ## Alat
 
 Daftar lengkap alat yang dilihat asisten ada di [README berbahasa Inggris](../README.md#tools).
+Ada juga prompt siap pakai yang memandu asisten mengerjakan tugas pengembang yang umum dengan alat-alat itu,
+dalam urutan yang tepat: `audit_accessibility`, `build_addon`, `why_silent` dan `check_labels`. Klien yang
+mendukung prompt MCP menampilkannya sebagai perintah; di Claude Code, misalnya, ketik
+`/mcp__nvda__audit_accessibility`.
 Setiap aksi melaporkan apa yang diucapkan NVDA sesudahnya dan ke mana fokus berpindah, dan bisa menunggu
 pengumuman yang diharapkan, misalnya "terkirim" atau judul sebuah dialog.
 
