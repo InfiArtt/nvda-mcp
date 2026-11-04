@@ -18,7 +18,7 @@ def catchUpEvents(foreground: T | None, focus: T | None) -> list[T]:
 	After Alt+Tab, NVDA first focuses the window itself, which says its title, and then the control in it.
 	A focus event for the control alone leaves the window a newly entered container: NVDA then says its
 	title as it enters it, and in browse mode documents says it again when it replays the containers it held back.
-	:param foreground: The window as NVDA's own focus handling takes it (desktop.objectInForeground()), if known.
+	:param foreground: The control's container just below the desktop, the window NVDA compares with, if known.
 	:param focus: The control focused in the window, if known.
 	"""
 	if foreground is None:

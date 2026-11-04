@@ -247,7 +247,7 @@ class EventTracer:
 				)
 		names = list(eventNames) or list(DEFAULT_BACKGROUND_EVENTS)
 		processId = winUser.getWindowThreadProcessID(handle)[0]
-		classNames = {windows.className(handle)} | {name for _, name in windows.childWindows(handle)}
+		classNames = {windows.className(handle)} | {name for _child, name in windows.childWindows(handle)}
 		if any(name.startswith("Chrome_WidgetWin") for name in classNames):
 			# Web pages send their events from this window, which a hidden Chromium window does not have yet.
 			classNames.add(CHROMIUM_DOCUMENT_WINDOW_CLASS)

@@ -255,7 +255,7 @@ def _readLines(info: textInfos.TextInfo) -> tuple[str, bool]:
 	length = 0
 	cursor = info.copy()
 	cursor.collapse()
-	for _ in range(MAX_TEXT_LINES):
+	for _step in range(MAX_TEXT_LINES):
 		line = cursor.copy()
 		line.expand(textInfos.UNIT_LINE)
 		text = line.text.rstrip("\r\n")
@@ -656,18 +656,28 @@ def _reportForeground(hwnd: int) -> None:
 			focus = window.objectWithFocus()
 		except Exception:  # noqa: BLE001 - applications raise COMError and others
 			log.debugWarning("Could not get the focused control", exc_info=True)
-	try:
-		# The object NVDA's own focus handling takes as the foreground window. For windows NVDA reads
-		# through UI Automation, such as Chromium's, it is a UIA object, the same one the control's
-		# containers lead up to, so NVDA counts the window as entered when the control gets focus.
-		foreground = api.getDesktopObject().objectInForeground()
-	except Exception:  # noqa: BLE001 - applications raise COMError and others
-		log.debugWarning("Could not get the foreground window", exc_info=True)
-		foreground = None
-	if _safeGet(foreground, "windowHandle") != hwnd:
-		foreground = None
-	for obj in catchUpEvents(foreground, focus or window):
+	focus = focus or window
+	for obj in catchUpEvents(_topContainer(focus), focus):
 		eventHandler.queueEvent("gainFocus", obj)
+
+
+def _topContainer(obj: NVDAObject | None) -> NVDAObject | None:
+	"""The container just below the desktop, as NVDA itself climbs to it when focus moves.
+
+	NVDA compares a new focus's containers with the old ones (api.setFocusObject walks ``container``),
+	so the window object announced first must be this very object: for Chromium it is a UIA window,
+	while other ways of getting "the window" give a different object, such as an IAccessible pane.
+	"""
+	desktop = api.getDesktopObject()
+	current = obj
+	for _step in range(MAX_INSPECT_ANCESTORS):
+		if current is None:
+			return None
+		container = _safeGet(current, "container")
+		if container is None or container == desktop:
+			return current
+		current = container
+	return None
 
 
 def _controlBusyError() -> BridgeError:
@@ -1155,7 +1165,7 @@ class NvdaActions:
 		# The outermost document is the page; the server finds its tab by this address.
 		document = None
 		current = obj
-		for _ in range(MAX_INSPECT_ANCESTORS):
+		for _step in range(MAX_INSPECT_ANCESTORS):
 			if current is None:
 				break
 			if _safeGet(current, "role") == controlTypes.Role.DOCUMENT:

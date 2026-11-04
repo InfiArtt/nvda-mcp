@@ -118,7 +118,7 @@ def _focusPathKeys(obj: NVDAObject | None) -> set[str]:
 	keys: set[str] = set()
 	current = obj
 	desktop = api.getDesktopObject()
-	for _ in range(MAX_FOCUS_PATH):
+	for _step in range(MAX_FOCUS_PATH):
 		if current is None or current == desktop:
 			break
 		key = objectKey(current)
@@ -136,7 +136,7 @@ def _documentOrWindowOf(obj: NVDAObject) -> NVDAObject:
 		return document
 	desktop = api.getDesktopObject()
 	current = obj
-	for _ in range(MAX_FOCUS_PATH):
+	for _step in range(MAX_FOCUS_PATH):
 		parent = _safeGet(current, "parent")
 		if parent is None or parent == desktop:
 			break
