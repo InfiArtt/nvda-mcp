@@ -906,7 +906,7 @@ class StillClock(Callbacks):
             self.clock.now = 10.0**9
 
 
-LAYOUT_LOOP = "stopped after 500 steps through layout containers without finding a child"
+LAYOUT_LOOP = "stopped after 3000 steps through layout containers without finding a child"
 
 
 def test_loop_among_sibling_layout_containers_is_stopped_and_the_walk_carries_on(monkeypatch):
@@ -925,7 +925,7 @@ def test_loop_among_sibling_layout_containers_is_stopped_and_the_walk_carries_on
     assert tree["children"][0]["cut"] == "nesting"
     assert tree["children"][0]["childCount"] == 1
     assert "cut" not in tree
-    assert len(callbacks.calls) < 2000
+    assert len(callbacks.calls) < 10000
 
 
 def test_loop_among_layout_containers_read_from_the_end_is_stopped(monkeypatch):
@@ -1074,3 +1074,23 @@ def test_random_broken_trees_never_raise(seed, monkeypatch):
     focus = rng.choice(nodes) if rng.random() < 0.7 else None
     # check_snapshot runs inside snapshot.
     snapshot(root, Callbacks(focus), **random_limits(rng))
+
+
+def test_shared_keys_are_not_taken_for_one_object_read_twice():
+    # Java Access Bridge objects all get their window's key: a long list still keeps its first and last rows.
+    items = [Node("list item", f"message {number}", key="hwnd:1") for number in range(60)]
+    root = Node("frame", "Chat", [Node("list", "Messages", items, key="hwnd:1")], key="hwnd:1")
+    result = snapshot(root, headChildren=15, tailChildren=25, maxNodes=400)
+    messages = result["tree"]["children"][0]
+    assert messages["cut"] == "gap"
+    assert len(messages["children"]) == 40
+    assert child_names(messages)[-1] == "message 59"
+
+
+def test_many_empty_layout_containers_do_not_stop_the_read():
+    empty = [Node("section") for _number in range(400)]
+    buttons = [Node("button", f"B{number}") for number in range(5)]
+    root = Node("document", "Page", empty + buttons)
+    result = snapshot(root, headChildren=10, tailChildren=10)
+    assert child_names(result["tree"]) == ["B0", "B1", "B2", "B3", "B4"]
+    assert result["truncated"] is None

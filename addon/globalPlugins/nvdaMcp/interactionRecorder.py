@@ -19,6 +19,7 @@ from gui.guiHelper import wxCallOnMain
 from logHandler import log
 from NVDAObjects import NVDAObject
 from NVDAObjects.IAccessible import IAccessible
+from NVDAObjects.JAB import JAB
 from NVDAObjects.UIA import UIA
 from NVDAObjects.window import Window
 
@@ -64,6 +65,9 @@ def objectKey(obj: NVDAObject) -> str | None:
 			return None
 		if isinstance(obj, UIA):
 			return "uia:" + ".".join(str(part) for part in obj.UIAElement.GetRuntimeId())
+		if isinstance(obj, JAB):
+			# Every object in a Java window shares the window handle, so it is no identity there.
+			return None
 		if isinstance(obj, Window):
 			return f"hwnd:{obj.windowHandle}"
 	except Exception:  # noqa: BLE001 - applications raise COMError and others

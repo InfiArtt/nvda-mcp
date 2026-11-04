@@ -9,7 +9,7 @@ read an object's children, how to describe it, and whether it only exists for la
 """
 
 import time
-from collections import deque
+from collections import Counter, deque
 from collections.abc import Callable, Iterator
 from typing import Any, TypeVar
 
@@ -25,7 +25,7 @@ _FOCUS_SEARCH_CHILDREN = 500
 
 # Reading an object's children stops when this many navigation steps through layout containers find no child.
 # Going into and out of 100 levels of them takes about 200; a loop among sibling containers never ends otherwise.
-_MAX_STEPS_WITHOUT_CHILD = 500
+_MAX_STEPS_WITHOUT_CHILD = 3000
 
 # When several reasons apply to one snapshot node, "cut" keeps the one that says most about what is missing.
 _CUT_RANK = {"gap": 1, "error": 2, "nesting": 3, "nodes": 4, "time": 4}
@@ -118,6 +118,38 @@ def _addCut(node: dict[str, Any], cut: str | None) -> None:
 	"""Say why a node's children were not all read, keeping the more telling reason when there are several."""
 	if cut is not None and _CUT_RANK[cut] > _CUT_RANK.get(node.get("cut"), 0):
 		node["cut"] = cut
+
+
+def _subtreeSize(node: dict[str, Any]) -> int:
+	return 1 + sum(_subtreeSize(child) for child in node.get("children", ()))
+
+
+def _withoutObjectsReadTwice(
+	described: list[tuple[dict[str, Any], bool]],
+) -> tuple[list[dict[str, Any]], int]:
+	"""Leave out the second copy of an object read both from the start and from the end of its parent.
+
+	NVDA hands out a new object each time one is reached, so a list that changed while it was read can
+	give the same object twice; only its key tells. Keys are trusted only where each occurs once among
+	the children read from the start and once among those read from the end: some applications, such as
+	Java ones, give many objects the same key. The copy on the focus path is kept, else the one from the start.
+	:return: The children to keep, and how many described nodes were left out.
+	"""
+	head = Counter(node.get("key") for node, _isFocus in described if node["index"] >= 0)
+	tail = Counter(node.get("key") for node, _isFocus in described if node["index"] < 0)
+	readTwice = {
+		key for key, count in head.items() if isinstance(key, str) and count == 1 and tail.get(key) == 1
+	}
+	keepFromEnd = {node.get("key") for node, isFocus in described if isFocus and node["index"] < 0}
+	kept: list[dict[str, Any]] = []
+	dropped = 0
+	for node, _isFocus in described:
+		key = node.get("key")
+		if key in readTwice and (node["index"] < 0) != (key in keepFromEnd):
+			dropped += _subtreeSize(node)
+			continue
+		kept.append(node)
+	return kept, dropped
 
 
 def _documentOrder(index: int) -> tuple[bool, int]:
@@ -329,10 +361,7 @@ def snapshotTree(
 		if focus is not None:
 			# Compared by identity: comparing accessible objects can mean asking the application.
 			kept = [focus] + [entry for entry in kept if entry is not focus]
-		children: list[dict[str, Any]] = []
-		# The index each key was first kept with. NVDA hands out a new object each time one is reached, so an
-		# object read both from the start and from the end (the list changed meanwhile) is known by its key.
-		indexByKey: dict[str, int] = {}
+		described: list[tuple[dict[str, Any], bool]] = []
 		for entry in kept:
 			if outOfBudget(True):
 				_addCut(node, stopped)
@@ -342,12 +371,10 @@ def snapshotTree(
 			if childNode is None:
 				_addCut(node, "error")
 				continue
-			key = childNode.get("key")
-			if isinstance(key, str) and (indexByKey.setdefault(key, index) < 0) != (index < 0):
-				nodeCount -= 1
-				continue
 			readBelow(child, childNode, depth + 1, childNesting, entry is focus)
-			children.append(childNode)
+			described.append((childNode, entry is focus))
+		children, dropped = _withoutObjectsReadTwice(described)
+		nodeCount -= dropped
 		if isLong:
 			_addCut(node, "gap")
 		for reading in (forwardReading, backwardReading):
