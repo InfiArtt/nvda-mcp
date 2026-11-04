@@ -67,6 +67,11 @@ install them together.
 - `nvda_activate_window` now brings NVDA along when Windows switches virtual desktops to reach the window.
   Windows sends no event then, so NVDA kept reading the old window and the result showed the old focus.
   NVDA then says the window title once, as after Alt+Tab; at first it said it twice in browsers.
+- `nvda_activate_window` says the window title once when the page in a Chromium browser or Electron app
+  is in focus mode, as in WhatsApp Web. These applications send no focus event for their window, so NVDA said
+  the title on entering the window and again on switching to focus mode, even on the same virtual desktop.
+  The add-on now tells NVDA about the window as soon as it comes to the front. Pages in browse mode
+  and other applications are left to NVDA, which says the title once there.
 
 ## [1.0.0] - 2026-11-02
 
