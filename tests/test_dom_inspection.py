@@ -3,7 +3,18 @@
 import contextlib
 
 import pytest
-from fake_cdp import FakeBrowser, FakePage, brave_info, comment, element, listener, make_pool, text
+from fake_cdp import (
+    FakeBrowser,
+    FakePage,
+    brave_info,
+    comment,
+    element,
+    listener,
+    make_pool,
+    pseudo,
+    shadow_root,
+    text,
+)
 
 from nvda_mcp import cdp, dom_inspection
 from nvda_mcp.dom_inspection import BrowserInspectionError, css_point
@@ -219,6 +230,69 @@ async def test_text_node_climbs_to_its_element(tmp_path, monkeypatch):
     assert "very likely the right one" in dom_inspection.element_markdown(likely).splitlines()[1]
 
 
+async def test_text_node_climb_does_not_compare_tags(tmp_path, monkeypatch):
+    async with browsing(tmp_path, monkeypatch) as (_fake, page):
+        span = by(page, **{"class": "selectable-text"})
+        # NVDA's tag is the text object's own: its parent element cannot be compared with it.
+        info = send_info(
+            page,
+            name="hello there",
+            role="static text",
+            attributes={"tag": "#text"},
+            domNodeId=span.children[0].backend_id,
+        )
+        result = await dom_inspection.inspect_element(info, parts=[])
+    assert result["match"]["method"] == "domNodeId"
+    assert result["node"]["backendNodeId"] == span.backend_id
+
+
+def icon_page():
+    icon = element(
+        "i",
+        {"class": "fa fa-send"},
+        pseudo_elements=[pseudo("before")],
+        box=(10, 10, 20, 20),
+        ax={"role": "button", "name": "Send"},
+    )
+    return FakePage(
+        "https://example.com/",
+        "Example",
+        element("html", {}, element("body", {}, element("div", {"id": "wrap"}, icon))),
+    )
+
+
+async def test_generated_content_matches_its_element(tmp_path, monkeypatch):
+    page = icon_page()
+    async with browsing(tmp_path, monkeypatch, pages=[page]):
+        icon = by(page, **{"class": "fa fa-send"})
+        # Chromium names an icon drawn with i::before <pseudo:before>, which no element's tag can equal.
+        base = brave_info(
+            documentUrl="https://example.com/",
+            name="Send",
+            role="graphic",
+            attributes={"tag": "<pseudo:before>"},
+        )
+        # By the generated content's own DOM node id...
+        own = await dom_inspection.inspect_element(
+            {**base, "domNodeId": icon.pseudo_elements[0].backend_id}, parts=[]
+        )
+        # ...by its parent's, as the add-on gives when the object has none...
+        parents = await dom_inspection.inspect_element(
+            {**base, "domNodeId": icon.backend_id, "domNodeIdFromParent": True}, parts=[]
+        )
+        # ...and by what is at its centre.
+        hit = await dom_inspection.inspect_element(
+            {**base, "location": [15, 15, 20, 20], "documentLocation": [0, 0, 1000, 600]}, parts=[]
+        )
+    for result in (own, parents, hit):
+        assert result["node"]["backendNodeId"] == icon.backend_id
+        assert result["node"]["tag"] == "i"
+    assert own["match"]["method"] == "domNodeId"
+    assert parents["match"]["method"] == "domNodeId"
+    assert parents["match"]["confidence"] == "likely"
+    assert hit["match"]["method"] == "hitTest"
+
+
 async def test_wrong_tag_for_the_dom_node_id_falls_through(tmp_path, monkeypatch):
     async with browsing(tmp_path, monkeypatch) as (_fake, page):
         compose = by(page, id="main-compose")
@@ -312,6 +386,65 @@ async def test_hit_test_needs_the_accessible_name(tmp_path, monkeypatch):
         "By position: the element at the control's centre is <span>, and neither it nor its parents is a <button> "
         'named "Record voice".'
     ) in raised.value.message
+
+
+async def test_positions_are_measured_again_after_a_new_connection(tmp_path, monkeypatch):
+    refreshed = []
+    async with browsing(tmp_path, monkeypatch) as (fake, page):
+        fresh = send_info(page, domNodeId=None)
+        # Measured before the automation infobar that appears with a new connection moved the page.
+        stale = {**fresh, "location": [1350, 300, 60, 60]}
+
+        async def refresh():
+            refreshed.append(True)
+            return fresh
+
+        result = await dom_inspection.inspect_element(stale, parts=[], refresh=refresh)
+        assert fake.hit_points == [(920, 920)]
+        # The connection is open now, so the positions NVDA gave are used as they are.
+        with pytest.raises(BrowserInspectionError) as reused:
+            await dom_inspection.inspect_element(stale, parts=[], refresh=refresh)
+        assert fake.hit_points[-1] == (920, 540)
+        assert len(refreshed) == 1
+        await dom_inspection.close_connections()
+        found = await dom_inspection.find_elements(stale, "span", refresh=refresh)
+        assert fake.hit_points[-1] == (920, 920)
+    assert len(refreshed) == 2
+    assert result["match"]["method"] == "hitTest"
+    assert result["node"]["backendNodeId"] == by(page, **{"aria-label": "Send"}).backend_id
+    assert reused.value.code == "notMatched"
+    assert found["scope"] == "element" and found["scopeTag"] == "button"
+
+
+async def test_positions_are_not_measured_again_without_a_hit_test(tmp_path, monkeypatch):
+    refreshed = []
+
+    async def refresh():
+        refreshed.append(True)
+        return {}
+
+    async with browsing(tmp_path, monkeypatch) as (_fake, page):
+        result = await dom_inspection.inspect_element(send_info(page), parts=[], refresh=refresh)
+    assert result["match"]["method"] == "domNodeId"
+    assert refreshed == []
+
+
+async def _refresh_fails():
+    raise RuntimeError("NVDA's object is gone")
+
+
+async def _refresh_without_positions():
+    return {"location": None, "documentLocation": [0, 120, 1500, 900]}
+
+
+@pytest.mark.parametrize("refresh", [_refresh_fails, _refresh_without_positions])
+async def test_positions_nvda_gave_are_kept_when_measuring_again_fails(tmp_path, monkeypatch, refresh):
+    async with browsing(tmp_path, monkeypatch) as (fake, page):
+        result = await dom_inspection.inspect_element(
+            send_info(page, domNodeId=None), parts=[], refresh=refresh
+        )
+        assert fake.hit_points == [(920, 920)]
+    assert result["match"]["method"] == "hitTest"
 
 
 async def test_control_off_screen_is_not_hit_tested(tmp_path, monkeypatch):
@@ -412,6 +545,18 @@ async def test_ancestors_nearest_first(tmp_path, monkeypatch):
     assert result["node"]["attributes"] is None and "### Attributes" not in markdown
 
 
+async def test_no_ancestor_levels_leaves_the_ancestors_out(tmp_path, monkeypatch):
+    async with browsing(tmp_path, monkeypatch) as (_fake, page):
+        result = await dom_inspection.inspect_element(
+            send_info(page), parts=["attributes", "ancestors"], ancestor_levels=0
+        )
+    assert result["ancestors"] is None
+    markdown = dom_inspection.element_markdown(result)
+    assert "### Attributes" in markdown
+    # Not "Nothing: it is the top of the page.": the button has ancestors; none were asked for.
+    assert "### Inside" not in markdown and "top of the page" not in markdown
+
+
 def sanitising_page():
     long_url = "https://cdn.example.com/" + "a" * 300 + "?access_token=XYZSECRET&size=2"
     data_uri = "data:image/png;base64," + "QUJD" * 200
@@ -429,6 +574,15 @@ def sanitising_page():
         element("div", {"aria-hidden": "true"}, element("span", {}, text("decoration"))),
         element("div", {"hidden": ""}, text("later")),
         element("p", {}, text("  Hello   <world> & friends  ")),
+        element(
+            "div",
+            {
+                "data-url": "/reset?token=RELSECRET&x=1",
+                "data-query": "session_token=QUERYSECRET&page=2",
+                "style": "background: url('https://x.example/a?sig=1&token=STYLESECRET')",
+            },
+        ),
+        element("iframe", {"srcdoc": '<input type="hidden" name="csrf" value="SRCDOCSECRET">'}),
     )
     return FakePage("https://example.com/", "Example", element("html", {}, element("body", {}, form)))
 
@@ -450,8 +604,17 @@ async def test_html_is_sanitised(tmp_path, monkeypatch):
         "typed words",
         "XYZSECRET",
         "TOKENSECRET",
+        "RELSECRET",
+        "QUERYSECRET",
+        "STYLESECRET",
+        "SRCDOCSECRET",
     ):
         assert gone not in html
+    # Secret query parameters are redacted in every attribute, relative URLs and styles too.
+    assert 'data-url="/reset?token=[redacted]&amp;x=1"' in html
+    assert 'data-query="session_token=[redacted]&amp;page=2"' in html
+    assert "url('https://x.example/a?sig=1&amp;token=[redacted]')" in html
+    assert '<iframe srcdoc="[HTML not shown]"></iframe>' in html
     assert html.splitlines()[0] == '<form id="form" action="/send">'
     assert "<template><!-- template contents not shown --></template>" in html
     assert '<input type="hidden" name="csrf" value="[redacted]">' in html
@@ -509,6 +672,63 @@ async def test_deep_html_is_read_deeper(tmp_path, monkeypatch):
     assert "<b>bottom</b>" in result["html"]
     assert "not read" not in result["html"]
     assert 16 in depths
+
+
+def component_page():
+    play = element("button", {"data-icon": "play", "part": "play"}, text("Play"))
+    player = element(
+        "my-player", {"id": "player"}, shadow_roots=[shadow_root(element("div", {"class": "controls"}, play))]
+    )
+    # The browser's own insides of a video are not the page's.
+    video = element(
+        "video",
+        {"src": "/clip.mp4"},
+        shadow_roots=[shadow_root(element("div", {"id": "ua-controls"}), mode="user-agent")],
+    )
+    # A component deep enough that its shadow root is at the edge of the first read.
+    card = element("my-card", {}, shadow_roots=[shadow_root(element("p", {}, text("deep inside")))])
+    for level in range(3):
+        card = element("div", {"data-level": str(level)}, card)
+    main = element("main", {"id": "top"}, player, video, card)
+    return FakePage("https://example.com/", "Example", element("html", {}, element("body", {}, main)))
+
+
+async def test_html_shows_shadow_dom(tmp_path, monkeypatch):
+    async with browsing(tmp_path, monkeypatch, pages=[component_page()]) as (fake, _page):
+        result = await dom_inspection.inspect_element(
+            brave_info(documentUrl="https://example.com/", attributes={"tag": "main", "id": "top"}),
+            parts=["attributes", "html"],
+        )
+        depths = [params["depth"] for params in fake.calls_of("DOM.describeNode") if params.get("pierce")]
+    html = result["html"]
+    assert '  <my-player id="player">\n    #shadow-root (open)\n      <div class="controls">' in html
+    assert '<button data-icon="play" part="play">Play</button>' in html
+    assert '<video src="/clip.mp4"></video>' in html
+    assert "ua-controls" not in html and "user-agent" not in html
+    # The card's shadow root was not read at first, so it was read again deeper.
+    assert "<p>deep inside</p>" in html
+    assert "not read" not in html
+    assert depths[-1] == 8
+    assert {"tag": "button", "depth": 3, "data": {"data-icon": "play"}} in result["node"]["descendantData"]
+
+
+def test_unread_shadow_root_is_marked():
+    writer = dom_inspection._HtmlWriter(3000)
+    writer.write(
+        {
+            "nodeType": 1,
+            "localName": "my-player",
+            "attributes": ["id", "p"],
+            "childNodeCount": 0,
+            "shadowRoots": [{"nodeType": 11, "shadowRootType": "closed", "childNodeCount": 5}],
+        }
+    )
+    assert writer.lines == [
+        '<my-player id="p">',
+        "  #shadow-root (closed)<!-- 5 children not read -->",
+        "</my-player>",
+    ]
+    assert writer.unread is True
 
 
 async def test_markdown_fence_outlasts_backticks_in_the_page(tmp_path, monkeypatch):
@@ -715,6 +935,26 @@ async def test_find_elements_bad_selector(tmp_path, monkeypatch):
     assert empty.value.code == "badSelector"
 
 
+async def test_find_elements_leaves_out_elements_that_changed(tmp_path, monkeypatch):
+    async with browsing(tmp_path, monkeypatch) as (fake, page):
+        attach = by(page, **{"aria-label": "Attach"})
+        # The app redrew the Attach button between the search and reading it.
+        fake.fail(
+            "DOM.describeNode",
+            when=lambda params, session: (
+                params.get("depth") == 2 and session.nodes.get(params.get("nodeId")) is attach
+            ),
+        )
+        footer = by(page, **{"data-testid": "conversation-footer"})
+        info = brave_info(name="", role="section", attributes={"tag": "footer"}, domNodeId=footer.backend_id)
+        result = await dom_inspection.find_elements(info, "button")
+    assert result["count"] == 2
+    assert [element["attributes"].get("aria-label") for element in result["elements"]] == ["Send"]
+    note = "1 matching element changed or disappeared before NVDA MCP could read it, so it is left out."
+    assert note in result["notes"]
+    assert f"Note: {note}" in dom_inspection.found_markdown(result)
+
+
 async def test_find_elements_no_match(tmp_path, monkeypatch):
     async with browsing(tmp_path, monkeypatch) as (_fake, page):
         result = await dom_inspection.find_elements(send_info(page), "video")
@@ -740,6 +980,74 @@ async def test_no_matching_tab(tmp_path, monkeypatch):
     assert "(https://web.whatsapp.com/other?…)" in raised.value.message
     assert missing.value.code == "noPage"
     assert_nothing_about_other_tabs(raised.value.message, missing.value.message)
+
+
+async def test_tab_closing_before_it_is_read_is_no_page(tmp_path, monkeypatch):
+    async with browsing(tmp_path, monkeypatch) as (fake, page):
+        # The tab closed between the browser listing it and NVDA MCP attaching to it.
+        fake.fail("Target.attachToTarget", "No target with given id found")
+        with pytest.raises(BrowserInspectionError) as inspected:
+            await dom_inspection.inspect_element(send_info(page), parts=["attributes"])
+        with pytest.raises(BrowserInspectionError) as found:
+            await dom_inspection.find_elements(send_info(page), "button")
+    for raised in (inspected, found):
+        assert raised.value.code == "noPage"
+        assert "closed or stopped being inspectable" in raised.value.message
+        assert raised.value.message.endswith("then try again.")
+        assert_nothing_about_other_tabs(raised.value.message)
+
+
+async def test_page_that_cannot_be_read_is_page_changed(tmp_path, monkeypatch):
+    async with browsing(tmp_path, monkeypatch) as (fake, page):
+        fake.fail("DOM.getDocument", "Document is being replaced")
+        with pytest.raises(BrowserInspectionError) as inspected:
+            await dom_inspection.inspect_element(send_info(page), parts=["attributes"])
+        with pytest.raises(BrowserInspectionError) as found:
+            await dom_inspection.find_elements(send_info(page), "button")
+        assert fake.sessions == {}
+    for raised in (inspected, found):
+        assert raised.value.code == "pageChanged"
+        assert raised.value.message.startswith(
+            "The page changed or closed while NVDA MCP was reading it, so Brave could not answer. Try again"
+        )
+        assert raised.value.message.endswith("(Brave said: Document is being replaced)")
+
+
+async def test_element_changing_after_it_was_matched_is_page_changed(tmp_path, monkeypatch):
+    async with browsing(tmp_path, monkeypatch) as (fake, page):
+        # Matched, then gone before NVDA MCP read its attributes.
+        fake.fail(
+            "DOM.describeNode",
+            when=lambda params, session: params.get("depth") == dom_inspection.DESCENDANT_DATA_DEPTH,
+        )
+        with pytest.raises(BrowserInspectionError) as raised:
+            await dom_inspection.inspect_element(send_info(page), parts=["attributes"])
+        assert fake.sessions == {}
+    assert raised.value.code == "pageChanged"
+    assert "(Brave said: Could not find node with given id)" in raised.value.message
+
+
+@pytest.mark.parametrize("method", ["Target.attachToTarget", "DOM.getDocument"])
+async def test_tab_that_cannot_be_read_is_skipped_when_looking_for_the_node(tmp_path, monkeypatch, method):
+    first, second = whatsapp(), whatsapp()
+    async with browsing(tmp_path, monkeypatch, pages=[first, second]) as (fake, _page):
+        if method == "Target.attachToTarget":
+            fake.fail(
+                method,
+                "No target with given id found",
+                when=lambda params, session: params.get("targetId") == first.target_id,
+            )
+        else:
+            fake.fail(
+                method, "Document is being replaced", when=lambda params, session: session.page is first
+            )
+        result = await dom_inspection.inspect_element(send_info(second), parts=[])
+        assert fake.sessions == {}
+    assert result["node"]["backendNodeId"] == by(second, **{"aria-label": "Send"}).backend_id
+    assert result["match"]["method"] == "domNodeId"
+    assert result["match"]["notes"] == [
+        "1 of the 2 tabs showing this page changed or closed while NVDA MCP looked at it, so it was skipped."
+    ]
 
 
 async def test_nothing_about_other_tabs_in_any_output(tmp_path, monkeypatch):

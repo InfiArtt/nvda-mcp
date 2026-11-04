@@ -10,7 +10,7 @@ import asyncio
 import contextlib
 import itertools
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Self
@@ -25,6 +25,7 @@ ELEMENT = 1
 TEXT = 3
 COMMENT = 8
 DOCUMENT = 9
+DOCUMENT_FRAGMENT = 11
 
 BRAVE_PATH = r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"
 BROWSER_PID = 4242
@@ -45,6 +46,10 @@ class FakeNode:
         listeners: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
         styles: dict[str, str] | None = None,
         template_content: "FakeNode | None" = None,
+        shadow_roots: tuple["FakeNode", ...] | list["FakeNode"] = (),
+        pseudo_elements: tuple["FakeNode", ...] | list["FakeNode"] = (),
+        shadow_root_type: str | None = None,
+        pseudo_type: str | None = None,
     ) -> None:
         self.node_type = node_type
         self.name = name
@@ -58,15 +63,29 @@ class FakeNode:
         self.listeners = list(listeners)
         self.styles = dict(styles or {})
         self.template_content = template_content
+        self.shadow_roots = list(shadow_roots)
+        self.pseudo_elements = list(pseudo_elements)
+        self.shadow_root_type = shadow_root_type
+        """For a shadow root: "open", "closed" or "user-agent"."""
+        self.pseudo_type = pseudo_type
+        """For generated content: "before", "after", "marker"..."""
         self.parent: FakeNode | None = None
         self.backend_id = 0
-        for child in self.children:
+        # Like Blink, a shadow root's and a pseudo-element's parent is their host element.
+        for child in (*self.children, *self.shadow_roots, *self.pseudo_elements):
             child.parent = self
 
     def walk(self) -> Iterator["FakeNode"]:
+        """The node and its descendants in the light DOM, as selectors see them."""
         yield self
         for child in self.children:
             yield from child.walk()
+
+    def walk_all(self) -> Iterator["FakeNode"]:
+        """Also the nodes in shadow trees and generated content (not template contents)."""
+        yield self
+        for child in (*self.pseudo_elements, *self.shadow_roots, *self.children):
+            yield from child.walk_all()
 
     def find(self, **attributes: str) -> "FakeNode":
         for node in self.walk():
@@ -88,6 +107,16 @@ def text(value: str, **options: Any) -> FakeNode:
 
 def comment(value: str) -> FakeNode:
     return FakeNode(COMMENT, "#comment", value=value, ax=False)
+
+
+def shadow_root(*children: FakeNode, mode: str = "open") -> FakeNode:
+    return FakeNode(
+        DOCUMENT_FRAGMENT, "#document-fragment", children=children, shadow_root_type=mode, ax=False
+    )
+
+
+def pseudo(kind: str = "before", **options: Any) -> FakeNode:
+    return FakeNode(ELEMENT, f"::{kind}", pseudo_type=kind, **options)
 
 
 def listener(
@@ -145,7 +174,7 @@ class _Session:
         return self.node_ids[node.backend_id]
 
     def holds(self, node: FakeNode) -> bool:
-        return any(found is node for found in self.page.document.walk())
+        return any(found is node for found in self.page.document.walk_all())
 
 
 def _parse_selector(selector: str) -> list[tuple[str | None, list[tuple[str, str, str | None]]]]:
@@ -300,6 +329,7 @@ class FakeBrowser:
         self.sessions: dict[str, _Session] = {}
         self.layout_requests = 0
         self.hit_points: list[tuple[Any, Any]] = []
+        self.failures: list[tuple[str, str, Callable[[dict[str, Any], _Session | None], bool] | None]] = []
         self._connections: set[ServerConnection] = set()
         self._closing = asyncio.Event()
         self._session_counter = itertools.count(1)
@@ -308,11 +338,11 @@ class FakeBrowser:
         backend_ids = itertools.count(1001)
         for index, page in enumerate(pages, 1):
             page.target_id = page.target_id or f"TARGET-{index:04d}"
-            for node in page.document.walk():
+            for node in page.document.walk_all():
                 node.backend_id = next(backend_ids)
                 self._nodes_by_backend[node.backend_id] = node
                 if node.template_content is not None:
-                    for inner in node.template_content.walk():
+                    for inner in node.template_content.walk_all():
                         inner.backend_id = next(backend_ids)
                         self._nodes_by_backend[inner.backend_id] = inner
 
@@ -349,6 +379,20 @@ class FakeBrowser:
 
     def node(self, backend_id: int) -> FakeNode:
         return self._nodes_by_backend[backend_id]
+
+    def fail(
+        self,
+        method: str,
+        message: str = "Could not find node with given id",
+        *,
+        when: Callable[[dict[str, Any], "_Session | None"], bool] | None = None,
+    ) -> None:
+        """Answers method with an error from now on, or only the calls for which when(params, session) is true.
+
+        The session is None for browser-level methods. This is how a page that changes, or a tab that closes,
+        between two commands looks to the client.
+        """
+        self.failures.append((method, message, when))
 
     # The handshake ---------------------------------------------------------------------------------------------
 
@@ -418,14 +462,17 @@ class FakeBrowser:
     def _dispatch(
         self, method: str, params: dict[str, Any], session_id: str | None, events: list[dict[str, Any]]
     ) -> dict[str, Any]:
-        if session_id is None:
+        session = self.sessions.get(session_id) if session_id is not None else None
+        if session_id is not None and session is None:
+            raise FakeError("Session with given id not found.")
+        for failing, message, when in self.failures:
+            if failing == method and (when is None or when(params, session)):
+                raise FakeError(message)
+        if session is None:
             handler = getattr(self, "_browser_" + method.replace(".", "_"), None)
             if handler is None:
                 raise FakeError(f"'{method}' wasn't found", -32601)
             return handler(params)
-        session = self.sessions.get(session_id)
-        if session is None:
-            raise FakeError("Session with given id not found.")
         handler = getattr(self, "_page_" + method.replace(".", "_"), None)
         if handler is None:
             raise FakeError(f"'{method}' wasn't found", -32601)
@@ -466,26 +513,50 @@ class FakeBrowser:
             raise FakeError("No session with given id")
         return {}
 
-    def _node_json(self, session: _Session, node: FakeNode, depth: int, *, bind: bool) -> dict[str, Any]:
+    def _node_json(
+        self, session: _Session, node: FakeNode, depth: int, *, bind: bool, pierce: bool = False
+    ) -> dict[str, Any]:
+        is_element = node.node_type == ELEMENT and not node.pseudo_type
         data: dict[str, Any] = {
             "nodeId": session.bind(node) if bind else 0,
             "backendNodeId": node.backend_id,
             "nodeType": node.node_type,
-            "nodeName": node.name.upper() if node.node_type == ELEMENT else node.name,
-            "localName": node.name if node.node_type == ELEMENT else "",
+            "nodeName": node.name.upper() if is_element else node.name,
+            "localName": node.name if is_element else "",
             "nodeValue": node.value if node.node_type in (TEXT, COMMENT) else "",
         }
         if node.node_type == ELEMENT:
             data["attributes"] = [part for pair in node.attributes.items() for part in pair]
             data["childNodeCount"] = len(node.children)
+        if node.pseudo_type:
+            data["pseudoType"] = node.pseudo_type
         if node.node_type == DOCUMENT:
             data["documentURL"] = session.page.url
             data["childNodeCount"] = len(node.children)
+        if node.node_type == DOCUMENT_FRAGMENT:
+            data["childNodeCount"] = len(node.children)
+            if node.shadow_root_type:
+                data["shadowRootType"] = node.shadow_root_type
+        # Like Blink: shadow roots and pseudo-elements always come with their host, shadow roots read as deep
+        # as the host only when piercing.
+        if node.shadow_roots:
+            data["shadowRoots"] = [
+                self._node_json(session, root, depth if pierce else 0, bind=bind, pierce=pierce)
+                for root in node.shadow_roots
+            ]
+        if node.pseudo_elements:
+            data["pseudoElements"] = [
+                self._node_json(session, generated, 0, bind=bind, pierce=pierce)
+                for generated in node.pseudo_elements
+            ]
         if node.template_content is not None:
-            data["templateContent"] = self._node_json(session, node.template_content, depth - 1, bind=bind)
+            data["templateContent"] = self._node_json(
+                session, node.template_content, depth - 1, bind=bind, pierce=pierce
+            )
         if depth != 0 and node.children:
             data["children"] = [
-                self._node_json(session, child, depth - 1, bind=bind) for child in node.children
+                self._node_json(session, child, depth - 1, bind=bind, pierce=pierce)
+                for child in node.children
             ]
             if bind:
                 session.children_sent.add(node.backend_id)
@@ -572,7 +643,8 @@ class FakeBrowser:
         self, session: _Session, params: dict[str, Any], events: list
     ) -> dict[str, Any]:
         node = self._any_node(session, params)
-        return {"node": self._node_json(session, node, params.get("depth", 1), bind=False)}
+        depth = params.get("depth", 1)
+        return {"node": self._node_json(session, node, depth, bind=False, pierce=bool(params.get("pierce")))}
 
     def _page_DOM_getAttributes(
         self, session: _Session, params: dict[str, Any], events: list

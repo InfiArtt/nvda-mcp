@@ -386,11 +386,39 @@ def no_page(browser: Browser, document_url: str | None) -> BrowserInspectionErro
     )
 
 
+def tab_gone(browser: Browser) -> BrowserInspectionError:
+    return BrowserInspectionError(
+        "noPage",
+        "The tab showing the page NVDA is reading closed or stopped being inspectable while NVDA MCP was "
+        f"reading it. Make sure the page is open in {browser.name} and has finished loading, then try again.",
+    )
+
+
+def page_changed(browser: Browser, detail: str = "") -> BrowserInspectionError:
+    message = (
+        f"The page changed or closed while NVDA MCP was reading it, so {browser.name} could not answer. "
+        "Try again once the page has finished loading; if the control was redrawn, move NVDA to it again first."
+    )
+    detail = " ".join(detail.split())
+    if detail:
+        message += f" ({browser.name} said: {detail if len(detail) <= 150 else detail[:149] + '…'})"
+    return BrowserInspectionError("pageChanged", message)
+
+
 def browser_gone(browser: Browser) -> BrowserInspectionError:
     return BrowserInspectionError(
         "browserGone",
         f"The connection to {browser.name} closed: {browser.name} may have been closed or restarted, or remote "
         f"debugging was turned off. Ask again to reconnect; {browser.name} will ask whether to allow it.",
+    )
+
+
+def stopped_waiting(browser: Browser) -> BrowserInspectionError:
+    return BrowserInspectionError(
+        "browserGone",
+        f"NVDA MCP closed its connections to {browser.name} while {browser.name} was still asking whether to "
+        'allow this one, so it stopped waiting and will not try again by itself. If the "Allow remote '
+        'debugging?" dialog is still open, choose Cancel in it, then ask again when you are ready.',
     )
 
 
@@ -738,11 +766,7 @@ class CdpConnection:
                 events.append(params)
         elif method == "Target.detachedFromTarget":
             session_id = params.get("sessionId")
-            gone = BrowserInspectionError(
-                "noPage",
-                f"The tab closed or stopped being inspectable while NVDA MCP was reading it. Try again "
-                f"once the page is open in {self.browser.name}.",
-            )
+            gone = tab_gone(self.browser)
             for future, pending_session in list(self._pending.values()):
                 if pending_session == session_id and not future.done():
                     future.set_exception(gone)
@@ -835,7 +859,14 @@ class ConnectionPool:
             task = asyncio.ensure_future(self._connect(endpoint, approval_timeout, announce))
             self._opening[key] = task
             task.add_done_callback(lambda done: self._opening_done(key, done))
-        return await asyncio.shield(task)
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            current = asyncio.current_task()
+            if task.cancelled() and not (current is not None and current.cancelling()):
+                # close_all() stopped the attempt; this caller itself was not cancelled.
+                raise stopped_waiting(endpoint.browser) from None
+            raise
 
     def _opening_done(self, key: tuple[int, str], task: asyncio.Task) -> None:
         if self._opening.get(key) is task:
@@ -884,6 +915,19 @@ class ConnectionPool:
                 del self._connections[key]
 
     async def close_all(self) -> None:
+        """Closes every connection, and gives up on those the user has not allowed yet.
+
+        Closing a connection that is waiting for the user does not dismiss the browser's dialog, but answering
+        Allow afterwards no longer leaves a connection open.
+        """
+        loop = asyncio.get_running_loop()
+        opening = [task for task in self._opening.values() if task.get_loop() is loop]
+        self._opening.clear()
+        for task in opening:
+            task.cancel()
+        if opening:
+            # A cancelled handshake closes its socket.
+            await asyncio.wait(opening, timeout=5)
         connections = list(self._connections.values())
         self._connections.clear()
         for connection in connections:

@@ -9,12 +9,15 @@ and by what is at the centre of the control on screen.
 
 import contextlib
 import re
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
 from nvda_mcp import cdp
 from nvda_mcp.cdp import Announce, BrowserInspectionError, CdpCommandError, PageSession
+
+Refresh = Callable[[], Awaitable[dict[str, Any]]]
+"""Reads webElementInfo again, for positions measured after the browser's automation infobar moved the page."""
 
 PARTS = ("attributes", "ancestors", "html", "styles", "listeners")
 DEFAULT_PARTS = ("attributes", "ancestors")
@@ -38,6 +41,7 @@ STYLE_PROPERTIES = (
 )
 OBJECT_GROUP = "nvdaMcp"
 REDACTED = "[redacted]"
+HTML_NOT_SHOWN = "[HTML not shown]"
 MAX_URL_CHARS = 100
 MAX_SHOWN_CHARS = 200
 MAX_TEXT_CHARS = 300
@@ -56,9 +60,12 @@ DOCUMENT_FRAGMENT_NODE = 11
 
 # Attribute names that suggest a secret value.
 _SECRET_NAME = re.compile(r"token|secret|password|passwd|nonce|csrf|xsrf", re.IGNORECASE)
-# Query or fragment parameters with such names, as in ?access_token=...
+# Query or fragment parameters with such names, as in ?access_token=..., anywhere in a value: absolute or
+# relative URLs, url(...) in a style, or a value that is a query itself. The value ends where a URL would.
 _SECRET_PARAMETER = re.compile(
-    r"([?&#;][^=&#;]*(?:token|secret|password|passwd|nonce|csrf|xsrf)[^=&#;]*=)[^&#;]*", re.IGNORECASE
+    r"((?:^|[?&#;])[^=&#;?\s]*(?:token|secret|password|passwd|nonce|csrf|xsrf)[^=&#;?\s]*=)"
+    r"[^&#;\s\"'()<>]*",
+    re.IGNORECASE,
 )
 _URL_ATTRIBUTES = frozenset(
     {
@@ -213,8 +220,9 @@ def _css_string(value: str) -> str:
 
 
 def _shorten_urls(name: str, value: str) -> str:
+    value = _SECRET_PARAMETER.sub(r"\1" + REDACTED, value)
     if name in _URL_ATTRIBUTES or _URL_VALUE.match(value):
-        value = _cut(_SECRET_PARAMETER.sub(r"\1" + REDACTED, value), MAX_URL_CHARS)
+        value = _cut(value, MAX_URL_CHARS)
     return _DATA_URI.sub(lambda found: _cut(found.group(0), MAX_URL_CHARS), value)
 
 
@@ -224,6 +232,9 @@ def _clean_value(tag: str, name: str, value: str, attributes: dict[str, str]) ->
         return REDACTED
     if tag == "input" and lowered == "value":
         return REDACTED
+    if lowered == "srcdoc":
+        # A whole document, with its own hidden inputs and tokens.
+        return HTML_NOT_SHOWN
     if tag == "meta" and lowered == "content":
         labels = " ".join(attributes.get(key, "") for key in ("name", "property", "http-equiv", "itemprop"))
         if _SECRET_NAME.search(labels):
@@ -256,8 +267,21 @@ def _data_attributes(cleaned: dict[str, str]) -> dict[str, str]:
     return {name: value for name, value in cleaned.items() if name.lower().startswith("data-")}
 
 
+def _shadow_roots(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The page's own shadow roots (open or closed), not the browser's insides of inputs and videos."""
+    return [root for root in node.get("shadowRoots") or [] if root.get("shadowRootType") != "user-agent"]
+
+
+def _shadow_and_light_children(node: dict[str, Any]) -> list[dict[str, Any]]:
+    shadow = [child for root in _shadow_roots(node) for child in root.get("children") or []]
+    return shadow + list(node.get("children") or [])
+
+
 def _descendant_data(node: dict[str, Any]) -> list[dict[str, Any]]:
-    """data-* attributes of descendants up to DESCENDANT_DATA_DEPTH levels down, such as a data-icon span."""
+    """data-* attributes of descendants up to DESCENDANT_DATA_DEPTH levels down, such as a data-icon span.
+
+    Descendants in shadow trees count too, as in a web component's button.
+    """
     found: list[dict[str, Any]] = []
 
     def walk(children: Iterable[dict[str, Any]], depth: int) -> None:
@@ -271,9 +295,9 @@ def _descendant_data(node: dict[str, Any]) -> list[dict[str, Any]]:
             if data:
                 found.append({"tag": tag, "depth": depth, "data": data})
             if depth < DESCENDANT_DATA_DEPTH:
-                walk(child.get("children") or [], depth + 1)
+                walk(_shadow_and_light_children(child), depth + 1)
 
-    walk(node.get("children") or [], 1)
+    walk(_shadow_and_light_children(node), 1)
     return found
 
 
@@ -356,8 +380,12 @@ class _Dom:
         self._pushed[backend_node_id] = node_id
         return node_id
 
-    async def describe(self, node_id: int, depth: int = 1) -> dict[str, Any]:
-        return (await self.page.send("DOM.describeNode", {"nodeId": node_id, "depth": depth}))["node"]
+    async def describe(self, node_id: int, depth: int = 1, *, pierce: bool = False) -> dict[str, Any]:
+        """A node and its children depth levels down; with pierce, also inside shadow roots (and frames)."""
+        params: dict[str, Any] = {"nodeId": node_id, "depth": depth}
+        if pierce:
+            params["pierce"] = True
+        return (await self.page.send("DOM.describeNode", params))["node"]
 
     def ancestors(self, node_id: int) -> list[tuple[int, dict[str, Any]]]:
         """Every known ancestor, nearest first, up to and including the node's document."""
@@ -401,7 +429,10 @@ def _dom_node_id(info: dict[str, Any]) -> int | None:
 
 
 def _nvda_tag(info: dict[str, Any]) -> str:
-    return str((info.get("attributes") or {}).get("tag") or "").lower()
+    """The tag Chromium gives NVDA's object, or "" when no element's tag can be compared with it."""
+    tag = str((info.get("attributes") or {}).get("tag") or "").lower()
+    # Generated content (::before, ::after, list markers) is named like <pseudo:before>: no element has that tag.
+    return "" if tag.startswith("<pseudo:") else tag
 
 
 def _tag_mismatch(node: dict[str, Any], info: dict[str, Any]) -> str | None:
@@ -422,6 +453,7 @@ async def _by_dom_node_id(page: PageSession, dom: _Dom, info: dict[str, Any]) ->
     if not node_id:
         return f"DOM node {backend} is not in this tab"
     node = await dom.describe(node_id)
+    climbed = bool(info.get("domNodeIdFromParent"))
     if node.get("nodeType") not in (ELEMENT_NODE, DOCUMENT_NODE) or node.get("pseudoType"):
         # NVDA's object is text (or ::before content); the element is its parent.
         parent = dom.parents.get(node_id)
@@ -429,7 +461,9 @@ async def _by_dom_node_id(page: PageSession, dom: _Dom, info: dict[str, Any]) ->
             return f"DOM node {backend} is {node.get('nodeName', 'a node')} with no known parent"
         node_id = parent
         node = await dom.describe(parent)
-    mismatch = _tag_mismatch(node, info)
+        climbed = True
+    # NVDA's tag is its own object's. When the element is that object's parent, there is nothing to compare.
+    mismatch = None if climbed else _tag_mismatch(node, info)
     if mismatch:
         return f"DOM node {backend} is {mismatch}"
     confidence = "likely" if info.get("domNodeIdFromParent") else "exact"
@@ -608,9 +642,32 @@ def _control_phrase(info: dict[str, Any]) -> str:
     return phrase
 
 
-async def _match(page: PageSession, dom: _Dom, info: dict[str, Any]) -> _Element:
+async def _relocated(info: dict[str, Any], refresh: Refresh) -> dict[str, Any]:
+    """info with the control's and the page's positions measured again; info itself if that fails."""
+    fresh = None
+    # The earlier positions are still the best guess if NVDA cannot measure them again.
+    with contextlib.suppress(Exception):
+        fresh = await refresh()
+    if not isinstance(fresh, dict):
+        return info
+    location, document_location = fresh.get("location"), fresh.get("documentLocation")
+    if _rect(location) is None or _rect(document_location) is None:
+        return info
+    return {**info, "location": location, "documentLocation": document_location}
+
+
+async def _match(
+    page: PageSession, dom: _Dom, info: dict[str, Any], refresh: Refresh | None = None
+) -> _Element:
+    """The element behind NVDA's control.
+
+    :param refresh: Given when the browser connection was just opened: the automation infobar that appeared
+        then moved the page, so the positions in info may be out of date. Called once, before the hit test.
+    """
     reasons = []
     for label, method in _METHODS:
+        if method is _by_position and refresh is not None:
+            info = await _relocated(info, refresh)
         try:
             outcome = await method(page, dom, info)
         except CdpCommandError as error:
@@ -649,33 +706,74 @@ async def _open_page(
     notes: list[str] = []
     async with contextlib.AsyncExitStack() as stack:
         chosen = None
+        readable = targets
+        skipped = 0
         if len(targets) > 1 and backend is not None:
             # Backend node ids are shared by every tab in a process; only the tab holding the node can push it.
+            readable = []
             for target in targets:
                 candidate = contextlib.AsyncExitStack()
                 try:
                     page = await candidate.enter_async_context(browser.attach(target))
                     dom = await _Dom.load(page)
                     holds_node = bool(await dom.push(backend))
+                except (CdpCommandError, BrowserInspectionError) as error:
+                    await candidate.aclose()
+                    if isinstance(error, BrowserInspectionError) and error.code != "noPage":
+                        raise
+                    # This tab closed or changed while NVDA MCP looked at it; another may hold the node.
+                    skipped += 1
+                    continue
                 except BaseException:
                     await candidate.aclose()
                     raise
+                readable.append(target)
                 if holds_node:
                     stack.push_async_callback(candidate.aclose)
                     chosen = (page, dom)
                     break
                 await candidate.aclose()
+            if not readable:
+                raise cdp.tab_gone(browser.browser)
         if chosen is None:
-            page = await stack.enter_async_context(browser.attach(targets[0]))
+            try:
+                page = await stack.enter_async_context(browser.attach(readable[0]))
+            except CdpCommandError:
+                # As when the tab closed after the browser listed it.
+                raise cdp.tab_gone(browser.browser) from None
             chosen = (page, await _Dom.load(page))
             if len(targets) > 1:
                 which = (
                     "the one with the same title"
-                    if title and targets[0].get("title") == title
+                    if title and readable[0].get("title") == title
                     else "the first"
                 )
                 notes.append(f"{len(targets)} tabs show this page; NVDA MCP read {which}.")
+        if skipped:
+            notes.append(
+                f"{skipped} of the {len(targets)} tabs showing this page changed or closed while NVDA MCP "
+                f"looked at {'it, so it was' if skipped == 1 else 'them, so they were'} skipped."
+            )
         yield chosen[0], chosen[1], notes
+
+
+@contextlib.asynccontextmanager
+async def _reading(
+    info: dict[str, Any], port: int | None, approval_timeout: float, announce: Announce | None
+) -> AsyncIterator[tuple[PageSession, _Dom, list[str], bool]]:
+    """The tab showing NVDA's page, its DOM, notes, and whether the browser connection was opened for this call.
+
+    The browser's own errors become a BrowserInspectionError the user can act on.
+    """
+    new = not cdp.pool.is_connected(info, port)
+    async with cdp.pool.browser(
+        info, port=port, approval_timeout=approval_timeout, announce=announce
+    ) as browser:
+        try:
+            async with _open_page(browser, info) as (page, dom, notes):
+                yield page, dom, notes, new
+        except CdpCommandError as error:
+            raise cdp.page_changed(browser.browser, error.message) from None
 
 
 # Collecting -----------------------------------------------------------------------------------------------------
@@ -763,7 +861,7 @@ class _HtmlWriter:
             )
             return
         children = [child for child in node.get("children") or [] if not _skipped(child)]
-        shadow_roots = node.get("shadowRoots") or []
+        shadow_roots = _shadow_roots(node)
         if not shadow_roots and not children:
             self.add(indent, f"{start}</{tag}>")
             return
@@ -773,7 +871,14 @@ class _HtmlWriter:
             return
         self.add(indent, start)
         for root in shadow_roots:
-            self.add(indent + 1, f"#shadow-root ({root.get('shadowRootType') or 'open'})")
+            heading = f"#shadow-root ({root.get('shadowRootType') or 'open'})"
+            root_count = root.get("childNodeCount") or 0
+            if "children" not in root and root_count:
+                self.unread = True
+                noun = "child" if root_count == 1 else "children"
+                self.add(indent + 1, f"{heading}<!-- {root_count} {noun} not read -->")
+                continue
+            self.add(indent + 1, heading)
             for child in root.get("children") or []:
                 self.write(child, indent + 2)
         for child in children:
@@ -785,7 +890,8 @@ async def _html(dom: _Dom, node_id: int, limit: int) -> tuple[str, bool]:
     writer = _HtmlWriter(limit)
     for depth in HTML_DEPTHS:
         writer = _HtmlWriter(limit)
-        writer.write(await dom.describe(node_id, depth=depth))
+        # pierce: web components keep their content in shadow roots. The writer leaves frames' documents out.
+        writer.write(await dom.describe(node_id, depth=depth, pierce=True))
         if writer.full or not writer.unread:
             break
     text = "\n".join(writer.lines)
@@ -880,27 +986,30 @@ async def inspect_element(
     port: int | None = None,
     approval_timeout: float = cdp.DEFAULT_APPROVAL_TIMEOUT_SECONDS,
     announce: Announce | None = None,
+    refresh: Refresh | None = None,
 ) -> dict[str, Any]:
     """The HTML element behind NVDA's control, with what NVDA cannot see of it.
 
     :param info: The bridge's webElementInfo result for the control.
     :param parts: Which of PARTS to collect.
+    :param ancestor_levels: How many containers above the element to list; 0 leaves them out, as when
+        "ancestors" is not in parts.
     :param port: The browser's debugging port; found from the browser's DevToolsActivePort file when None.
     :param approval_timeout: How long to wait for the user to answer the browser's "Allow remote debugging?"
         dialog when a new connection is needed.
     :param announce: Called with a sentence for the user just before a new connection is opened.
+    :param refresh: Returns webElementInfo for the control again. Called at most once, only when this call
+        opened a new connection (the browser's automation infobar then moves the page) and the element is
+        looked for by position; the new location and documentLocation are used for that.
     :raises BrowserInspectionError: With a message for the user.
     """
     wanted = _check_parts(parts)
     html_chars = max(100, int(html_chars))
     ancestor_levels = max(0, int(ancestor_levels))
-    async with (
-        cdp.pool.browser(info, port=port, approval_timeout=approval_timeout, announce=announce) as browser,
-        _open_page(browser, info) as (page, dom, notes),
-    ):
-        element = await _match(page, dom, info)
+    async with _reading(info, port, approval_timeout, announce) as (page, dom, notes, new):
+        element = await _match(page, dom, info, refresh if new else None)
         notes = notes + element.notes
-        described = await dom.describe(element.node_id, depth=DESCENDANT_DATA_DEPTH)
+        described = await dom.describe(element.node_id, depth=DESCENDANT_DATA_DEPTH, pierce=True)
         tag = _tag(described)
         node: dict[str, Any] = {
             "backendNodeId": described.get("backendNodeId"),
@@ -925,7 +1034,7 @@ async def inspect_element(
             "styles": None,
             "listeners": None,
         }
-        if "ancestors" in wanted:
+        if "ancestors" in wanted and ancestor_levels > 0:
             result["ancestors"] = [
                 _ancestor_entry(ancestor) for _id, ancestor in dom.element_ancestors(element.node_id)
             ][:ancestor_levels]
@@ -979,20 +1088,23 @@ async def find_elements(
     port: int | None = None,
     approval_timeout: float = cdp.DEFAULT_APPROVAL_TIMEOUT_SECONDS,
     announce: Announce | None = None,
+    refresh: Refresh | None = None,
 ) -> dict[str, Any]:
-    """Elements matching a CSS selector inside NVDA's control, or in its whole page if it is not found."""
+    """Elements matching a CSS selector inside NVDA's control, or in its whole page if it is not found.
+
+    The parameters are as for inspect_element.
+
+    :raises BrowserInspectionError: With a message for the user.
+    """
     if not selector or not selector.strip():
         raise BrowserInspectionError("badSelector", "Give a CSS selector to search for, such as [data-icon].")
     max_results = max(1, int(max_results))
-    async with (
-        cdp.pool.browser(info, port=port, approval_timeout=approval_timeout, announce=announce) as browser,
-        _open_page(browser, info) as (page, dom, notes),
-    ):
+    async with _reading(info, port, approval_timeout, announce) as (page, dom, notes, new):
         scope_id = dom.root_id
         match = None
         scope_tag = None
         try:
-            element = await _match(page, dom, info)
+            element = await _match(page, dom, info, refresh if new else None)
         except BrowserInspectionError as error:
             if error.code != "notMatched":
                 raise
@@ -1011,7 +1123,21 @@ async def find_elements(
                 'Check it is valid CSS, such as button[aria-label] or [data-icon="send"].',
             ) from None
         node_ids = result.get("nodeIds") or []
-        elements = [_found_entry(await dom.describe(node_id, depth=2)) for node_id in node_ids[:max_results]]
+        elements = []
+        gone = 0
+        for node_id in node_ids[:max_results]:
+            try:
+                described = await dom.describe(node_id, depth=2)
+            except CdpCommandError:
+                # Removed or redrawn since the search, as when an app re-renders a list.
+                gone += 1
+                continue
+            elements.append(_found_entry(described))
+        if gone:
+            notes.append(
+                f"{gone} matching {'element' if gone == 1 else 'elements'} changed or disappeared before NVDA "
+                f"MCP could read {'it, so it is' if gone == 1 else 'them, so they are'} left out."
+            )
         return {
             "control": _control(info),
             "page": _page(page),

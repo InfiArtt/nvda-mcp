@@ -673,6 +673,31 @@ async def test_close_all_closes_the_socket(tmp_path):
 
 
 @pytest.mark.anyio
+async def test_close_all_gives_up_on_a_connection_waiting_for_approval(tmp_path):
+    async with FakeBrowser([simple_page()], approval_delay=0.5) as fake:
+        pool = make_pool(fake, tmp_path)
+
+        async def call():
+            async with pool.browser(brave_info()):
+                pass
+
+        task = asyncio.ensure_future(call())
+        # The dialog is showing when the server closes its connections.
+        await eventually(lambda: fake.handshakes == 1)
+        await pool.close_all()
+        with pytest.raises(BrowserInspectionError) as raised:
+            await task
+        # The user chooses Allow afterwards: nothing is left open.
+        await asyncio.sleep(0.7)
+        await eventually(lambda: fake.open_connections == 0)
+        assert not pool.is_connected(brave_info())
+    assert raised.value.code == "browserGone"
+    assert "stopped waiting" in raised.value.message
+    assert "choose Cancel" in raised.value.message
+    assert fake.handshakes == 1
+
+
+@pytest.mark.anyio
 async def test_connection_from_an_ended_event_loop_is_not_reused(tmp_path):
     async with FakeBrowser([simple_page()]) as fake:
         pool = make_pool(fake, tmp_path)
