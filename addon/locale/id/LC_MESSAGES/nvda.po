@@ -148,6 +148,10 @@ msgstr "Perintah penyiapan disalin. Tempelkan ke command prompt lalu tekan Enter
 msgid "Let MCP clients read the &HTML of web pages through the browser's remote debugging"
 msgstr "Izinkan klien MCP membaca &HTML halaman web melalui remote debugging browser"
 
+#. Translators: A checkbox in the NVDA MCP settings panel. The pictures are sent to the AI assistant.
+msgid "Let MCP clients take pictures of controls on the &screen"
+msgstr "Izinkan klien MCP mengambil &gambar kontrol di layar"
+
 #. Translators: Said before an MCP client connects to a web browser's remote debugging.
 #. {browser} is the browser's name, such as Brave or Google Chrome.
 msgid ""

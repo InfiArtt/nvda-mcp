@@ -17,6 +17,8 @@ CONFIG_SPEC: dict[str, str] = {
 	"logActions": "boolean(default=True)",
 	# Lets MCP clients read web pages through the browser's remote debugging (Chrome DevTools Protocol).
 	"allowBrowserInspection": "boolean(default=False)",
+	# Lets MCP clients take pictures of controls on the screen; the pictures go to the client's AI provider.
+	"allowScreenCapture": "boolean(default=False)",
 }
 
 

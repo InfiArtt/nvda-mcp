@@ -42,6 +42,18 @@ install them together.
   it connects, and the browser asks before every new connection. Only the page you work with is read:
   no scripts are run and your other tabs are never listed.
 
+- `nvda_lookup_api`, for add-on developers: checks a name in the Python code of the NVDA that is running,
+  before it goes into an add-on. It says whether the name exists, what it is, its signature, docstring and
+  members, where it is defined with a link to NVDA's source for that release, and whether it looks deprecated,
+  and suggests close names when it does not exist. With `search` it finds names in NVDA's and add-ons' modules.
+  It only reads, and does not run the code it looks at.
+- `nvda_capture_control`, for developers: a picture of a control on the screen next to what NVDA says for it,
+  to find icons and visible text the accessible name leaves out. Off until you check the new setting
+  **Let MCP clients take pictures of controls on the screen**. It captures the way NVDA's own text recognition
+  does, so it works with Screen Curtain on, and every picture is written to the action log.
+- Ready-made MCP prompts for common developer tasks: `audit_accessibility`, `build_addon`, `why_silent` and
+  `check_labels`. Clients that support prompts offer them as commands.
+
 ### Changed
 
 - Ids from `nvda_find_objects` stay valid through later searches, until the control disappears,
@@ -50,7 +62,7 @@ install them together.
   around it, they share one 3-second time limit instead of 3 seconds each.
 - `nvda_trace_events` no longer records which character a typed-character event carried, so passwords stay
   out of traces (NVDA only says "star" for them). What NVDA speaks as you type in other fields is still recorded.
-- The bridge protocol version is now 6. Update the add-on and the server together.
+- The bridge protocol version is now 7. Update the add-on and the server together.
 
 ### Fixed
 
