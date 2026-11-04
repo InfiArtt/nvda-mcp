@@ -39,6 +39,12 @@ install them together.
 
 ### Fixed
 
+- Your answer to "allow ... to press keys?" now lasts until NVDA restarts, as the question says,
+  instead of being forgotten when plugins are reloaded.
+- An unanswered "allow ... to press keys?" question closes by itself, with an announcement, before the
+  MCP client stops waiting. Before, answering Yes much later still ran the old action, and every other
+  action waited behind the open question. An action that cannot start in time fails with `controlBusy`.
+- Escape answers No in that question; before, it did nothing.
 - `nvda_get_object_tree` no longer drops a control and everything in it when it is the last one shown
   and its own children were cut short; on WhatsApp Web most of the page went missing this way.
 - `nvda_activate_window` now brings NVDA along when Windows switches virtual desktops to reach the window.

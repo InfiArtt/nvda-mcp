@@ -19,6 +19,7 @@ from .bridge_client import BridgeClient, NvdaBridgeError, NvdaUnavailableError
 
 CHARACTER_LIMIT = 25_000
 # Pressing keys can wait on the user answering NVDA's permission dialog.
+# Control actions may wait this long for the user to allow them; the add-on's controlApproval.py relies on it.
 PRESS_KEYS_TIMEOUT_SECONDS = 120.0
 # When a window in the background is a Chromium browser or Electron app whose page NVDA cannot reach.
 WEB_PAGE_UNAVAILABLE = (
@@ -49,6 +50,7 @@ The user is likely blind or low vision and hears everything NVDA says.
   and nvda_audit_focus_order act on the user's computer. They work only if the user has allowed it in NVDA's
   settings, NVDA may ask the user first, and the user may limit them to some applications (appNotAllowed).
   Say what you are about to do before doing it, and never retry after a controlDenied error.
+  After approvalTimedOut, tell the user that NVDA's question went unanswered; try again when they are ready.
   Every action is written to a log the user can read; nvda_get_action_log shows it.
 - For developers: nvda_preview_speech says what NVDA would announce for controls without moving focus;
   nvda_inspect_object shows a control's IAccessible2 attributes, containers and children, and how an add-on
