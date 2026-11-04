@@ -56,7 +56,8 @@ It writes `dist\nvdaMcp-<version>.nvda-addon`, with the help pages made from `RE
 - **Server code**: point your MCP client at your checkout, for example
   `claude mcp add --scope user nvda -- <checkout>\.venv\Scripts\nvda-mcp.exe`.
   A client keeps running the server it started; stop it with `taskkill /IM nvda-mcp.exe /T /F`,
-  and the next NVDA tool call starts the new code.
+  and the next NVDA tool call starts the new code. Stop it before reinstalling with `pip install -e` as well:
+  Windows locks the running `nvda-mcp.exe`, and pip then fails halfway and leaves the package uninstalled.
 
 ## Code style
 

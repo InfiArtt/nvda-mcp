@@ -46,6 +46,8 @@ CI (`.github/workflows/ci.yml`) runs all of these on Windows. Run the tests befo
   `%APPDATA%\nvda\addons\nvdaMcp\globalPlugins\nvdaMcp\`, then press NVDA+Ctrl+F3 or call `nvda_reload_plugins`.
   Server code: the session keeps running the server it started with; stop it with
   `taskkill /IM nvda-mcp.exe /T /F` and the next NVDA tool call starts the new code.
+  Stop it before `pip install -e` too: Windows locks the running `nvda-mcp.exe`, pip fails halfway and leaves
+  `nvda_mcp` uninstalled, and the next session's NVDA server fails with "Connection closed".
 - **The user hears what you do.** Tools that press keys or type act on the user's real computer.
   Say what you will press before pressing it, and never retry after `controlDenied`.
 - **Bridge protocol.** Changing a bridge method's parameters or results means raising the protocol version in
