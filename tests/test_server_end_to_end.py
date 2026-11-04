@@ -15,11 +15,13 @@ pytestmark = pytest.mark.anyio
 class FakeWindow:
     """A window with a fixed tab order that speaks like NVDA when focus moves."""
 
-    def __init__(self, controls, allow_control=True):
+    def __init__(self, controls, allow_control=True, accepts_values=True):
         self.controls = controls
         self.index = 0
         self.allow_control = allow_control
+        self.accepts_values = accepts_values
         self.speech = SpeechLog(maxEntries=100)
+        self.calls = {}
 
     def focus(self, params=None):
         name, role = self.controls[self.index]
@@ -64,9 +66,63 @@ class FakeWindow:
         self.speech.add(params["text"])
         return {"speech": [entry.toDict() for entry in self.speech.since(start)], "focus": self.focus()}
 
+    def set_value(self, params):
+        self.calls["setValue"] = params
+        value = params["text"] if self.accepts_values else ""
+        return {
+            "speech": [],
+            "focus": self.focus(),
+            "method": "IAccessible accValue",
+            "object": {"name": "Type a message", "role": "edit", "value": value},
+        }
+
+    def trace_events(self, params):
+        self.calls["traceEvents"] = params
+        if params["action"] == "start":
+            result = {"afterId": 4, "stopsAfterSeconds": 600}
+            if "backgroundWindow" in params:
+                result["background"] = {
+                    "events": ["nameChange", "liveRegionChange"],
+                    "processId": 7,
+                    "windowClasses": ["Chrome_RenderWidgetHostHWND", "Chrome_WidgetWin_1"],
+                }
+            return result
+        return {
+            "tracing": params["action"] != "stop",
+            "lastId": 7,
+            "entries": [
+                {"id": 5, "event": "nameChange", "name": "Status", "role": "text", "app": "demo"},
+                {
+                    "id": 6,
+                    "event": "liveRegionChange",
+                    "name": "Status",
+                    "role": "text",
+                    "app": "demo",
+                    "spokenNearby": "Saved",
+                },
+                {
+                    "id": 7,
+                    "event": "liveRegionChange",
+                    "role": "section",
+                    "app": "brave",
+                    "background": True,
+                    "text": "3 chats found",
+                },
+            ],
+        }
+
     def handlers(self):
         return {
             "typeText": self.type_text,
+            "setValue": self.set_value,
+            "inspectObject": lambda params: {
+                "object": {"name": "Chat list", "role": "table", "appName": "brave"},
+                "roleConstant": "TABLE",
+                "api": "IAccessible2",
+                "attributes": {"xml-roles": "grid", "name-from": "attribute", "rowcount": "357"},
+                "table": {"loadedRows": 16},
+                "params": params,
+            },
             "setDocumentMode": lambda params: self.speak_after_action(params["mode"] + " mode", params),
             "findInPage": lambda params: {
                 **self.speak_after_action("Prices start at 10 dollars", params),
@@ -116,28 +172,35 @@ class FakeWindow:
             },
             "findObjects": lambda params: {
                 "objects": [
-                    {"id": 1, "name": "Chat in dominion", "role": "edit", "states": ["focusable"]}
-                    if "within" not in params
-                    else {"id": 1, "name": f"Send, inside {params['within']}", "role": "button"}
+                    {"id": 1, "name": f"Send, inside {params['within']}", "role": "button"}
+                    if "within" in params
+                    else {"id": 2, "name": f"Type a message, in window {params['window']}", "role": "edit"}
+                    if "window" in params
+                    else {"id": 1, "name": "Chat in dominion", "role": "edit", "states": ["focusable"]}
                 ],
                 "truncated": None,
+                **({"webPageUnavailable": True} if params.get("window") == 23 else {}),
             },
-            "getTree": lambda params: {
-                "nodeCount": 3,
-                "truncated": None,
-                "tree": {
-                    "role": "window",
-                    "name": "Demo",
-                    "children": [
-                        {
-                            "role": "list",
-                            "name": "Scripts",
-                            "moreChildren": 898,
-                            "children": [{"role": "list item", "name": "a.mws"}],
-                        }
-                    ],
-                },
-            },
+            "getTree": lambda params: (
+                self.calls.update(getTree=params)
+                or {
+                    "nodeCount": 3,
+                    "truncated": None,
+                    "tree": {
+                        "role": "window",
+                        "name": "Demo",
+                        "children": [
+                            {
+                                "role": "list",
+                                "name": "Scripts",
+                                "moreChildren": 898,
+                                "children": [{"role": "list item", "name": "a.mws"}],
+                            }
+                        ],
+                    },
+                    **({"webPageUnavailable": True} if params.get("window") == 23 else {}),
+                }
+            ),
             "getStatus": lambda params: {"lastSpeechId": self.speech.lastId},
             "previewSpeech": lambda params: {
                 "previews": [
@@ -160,25 +223,7 @@ class FakeWindow:
                     }
                 ],
             },
-            "traceEvents": lambda params: (
-                {"afterId": 4, "stopsAfterSeconds": 600}
-                if params["action"] == "start"
-                else {
-                    "tracing": params["action"] != "stop",
-                    "lastId": 6,
-                    "entries": [
-                        {"id": 5, "event": "nameChange", "name": "Status", "role": "text", "app": "demo"},
-                        {
-                            "id": 6,
-                            "event": "liveRegionChange",
-                            "name": "Status",
-                            "role": "text",
-                            "app": "demo",
-                            "spokenNearby": "Saved",
-                        },
-                    ],
-                }
-            ),
+            "traceEvents": self.trace_events,
             "getFocus": self.focus,
             "getSpeech": lambda params: {
                 "lastId": self.speech.lastId,
@@ -330,10 +375,28 @@ async def test_find_objects_lists_ids(connect):
     async with Client(server.mcp) as client:
         found = text_of(await client.call_tool("nvda_find_objects", {"name_contains": "chat"}))
         inside = text_of(await client.call_tool("nvda_find_objects", {"name_contains": "send", "within": 3}))
+        background = text_of(
+            await client.call_tool("nvda_find_objects", {"name_contains": "message", "window": 22})
+        )
         empty = await client.call_tool("nvda_find_objects", {})
+        both = await client.call_tool("nvda_find_objects", {"role": "edit", "within": 3, "window": 22})
     assert found == '1. edit "Chat in dominion" [focusable]'
     assert inside == '1. button "Send, inside 3"'
+    assert background == '2. edit "Type a message, in window 22"'
     assert empty.is_error
+    assert both.is_error
+
+
+async def test_hidden_browser_window_says_its_page_cannot_be_reached(connect):
+    connect(FakeWindow([("OK", "button")]))
+    async with Client(server.mcp) as client:
+        found = text_of(await client.call_tool("nvda_find_objects", {"role": "edit", "window": 23}))
+        tree = text_of(await client.call_tool("nvda_get_object_tree", {"window": 23}))
+        shown = text_of(await client.call_tool("nvda_get_object_tree", {"window": 22}))
+    assert "NVDA cannot reach the web page in this window now" in found
+    assert tree.startswith("3 objects\nNVDA cannot reach the web page in this window now")
+    assert "nvda_activate_window" in tree
+    assert "cannot reach" not in shown
 
 
 async def test_tree_says_how_many_children_were_left_out(connect):
@@ -341,6 +404,42 @@ async def test_tree_says_how_many_children_were_left_out(connect):
     async with Client(server.mcp) as client:
         result = await client.call_tool("nvda_get_object_tree", {})
     assert '- list "Scripts"\n    - list item "a.mws"\n    - … 898 more children not shown' in text_of(result)
+
+
+async def test_tree_can_start_from_a_found_control_or_a_background_window(connect):
+    window = connect(FakeWindow([("OK", "button")]))
+    async with Client(server.mcp) as client:
+        await client.call_tool("nvda_get_object_tree", {"id": 5})
+        from_id = window.calls["getTree"]
+        await client.call_tool("nvda_get_object_tree", {"window": 22})
+        from_window = window.calls["getTree"]
+        both = await client.call_tool("nvda_get_object_tree", {"id": 5, "window": 22})
+    assert from_id["id"] == 5 and "window" not in from_id
+    assert from_window["window"] == 22 and "id" not in from_window
+    assert both.is_error
+
+
+async def test_inspect_object_suggests_how_an_addon_could_match_it(connect):
+    connect(FakeWindow([("OK", "button")]))
+    async with Client(server.mcp) as client:
+        result = text_of(await client.call_tool("nvda_inspect_object", {"id": 4}))
+        raw = text_of(await client.call_tool("nvda_inspect_object", {"id": 4, "response_format": "json"}))
+    assert result.startswith('## table "Chat list"\n- API: IAccessible2')
+    assert "- The application says it has: 357\n- In the accessibility tree now: 16" in result
+    assert '2. ARIA role grid: `obj.IA2Attributes.get("xml-roles") == "grid"`' in result
+    assert '"id": 4' in raw
+
+
+async def test_set_value_reports_whether_the_control_took_the_text(connect):
+    window = connect(FakeWindow([("Chat", "edit")]))
+    async with Client(server.mcp) as client:
+        took = text_of(await client.call_tool("nvda_set_value", {"text": "halo", "id": 3}))
+    assert window.calls["setValue"]["text"] == "halo" and window.calls["setValue"]["id"] == 3
+    assert took.startswith("Set through IAccessible accValue. The control now has this text.\n")
+    connect(FakeWindow([("Chat", "edit")], accepts_values=False))
+    async with Client(server.mcp) as client:
+        refused = text_of(await client.call_tool("nvda_set_value", {"text": "halo"}))
+    assert "The control now reads '', not the text sent: it may not accept text this way." in refused
 
 
 async def test_until_speech_reports_whether_the_expected_announcement_came(connect):
@@ -401,9 +500,25 @@ async def test_get_log_and_trace_events(connect):
     assert "### ERROR 23:43:26.884 external:globalPlugins.foo\nZeroDivisionError" in log
     assert started == "Tracing all events in demo. Read with after_id 4. It stops by itself after 10 minutes."
     assert stopped == (
-        "2 events, lastId 6, tracing is off.\n\n"
+        "3 events, lastId 7, tracing is off.\n\n"
         "5. nameChange on Status (text) in demo\n   NVDA said nothing\n"
-        "6. liveRegionChange on Status (text) in demo\n   NVDA said around then, probably because of this: Saved"
+        "6. liveRegionChange on Status (text) in demo\n   NVDA said around then, probably because of this: Saved\n"
+        "7. liveRegionChange on (no name) (section) in brave\n"
+        "   From the background window: recorded only, NVDA did not act on it\n"
+        "   Text: 3 chats found"
+    )
+
+
+async def test_trace_events_can_ask_for_events_from_a_background_window(connect):
+    window = connect(FakeWindow([("OK", "button")]))
+    async with Client(server.mcp) as client:
+        started = text_of(
+            await client.call_tool("nvda_trace_events", {"action": "start", "background_window": 22})
+        )
+    assert window.calls["traceEvents"]["backgroundWindow"] == 22
+    assert started.endswith(
+        "\nAlso asked NVDA for nameChange, liveRegionChange from that window in the background "
+        "(window classes: Chrome_RenderWidgetHostHWND, Chrome_WidgetWin_1)."
     )
 
 

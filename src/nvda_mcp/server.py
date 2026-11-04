@@ -13,13 +13,19 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
-from . import scenario
+from . import inspection, scenario
 from .audit import ROLES_NEEDING_NAMES, FocusOrderAuditor
 from .bridge_client import BridgeClient, NvdaBridgeError, NvdaUnavailableError
 
 CHARACTER_LIMIT = 25_000
 # Pressing keys can wait on the user answering NVDA's permission dialog.
 PRESS_KEYS_TIMEOUT_SECONDS = 120.0
+# When a window in the background is a Chromium browser or Electron app whose page NVDA cannot reach.
+WEB_PAGE_UNAVAILABLE = (
+    "NVDA cannot reach the web page in this window now, only the browser around it: Chromium browsers and "
+    "Electron apps stop exposing a page some time after its window is hidden. Bring the window to the front "
+    "with nvda_activate_window, or ask the user to, then try again."
+)
 
 INSTRUCTIONS = """\
 Tools for working with the NVDA screen reader on the user's Windows computer.
@@ -27,6 +33,9 @@ The user is likely blind or low vision and hears everything NVDA says.
 
 - To learn what is on screen, start with nvda_get_focus, then nvda_get_object_tree or nvda_get_text.
 - To find a control by name or role, use nvda_find_objects; then nvda_focus_object or nvda_activate_object.
+  Ids stay valid through later searches. To search inside a large page, find a container and pass within.
+- To read a window without bringing it to the front, pass its handle from nvda_list_windows as window
+  to nvda_find_objects or nvda_get_object_tree; it may be in the background or on another virtual desktop.
 - To switch applications, use nvda_list_windows and nvda_activate_window rather than Alt+Tab.
 - In web pages, check documentMode (browse or focus) in nvda_get_focus before pressing keys: in browse mode
   letters move around the page. nvda_set_document_mode switches. nvda_list_elements lists headings, links and
@@ -36,13 +45,15 @@ The user is likely blind or low vision and hears everything NVDA says.
 - nvda_get_speech_history shows exactly what the user heard; use it to answer "what did NVDA just say?".
   nvda_wait_for_speech waits for something to be said, such as a chat reply.
 - nvda_speak talks over whatever the user is doing. Use it only for short, useful announcements.
-- nvda_press_keys, nvda_type_text, nvda_activate_window, nvda_focus_object, nvda_activate_object and
-  nvda_audit_focus_order act on the user's computer. They work only if the user has allowed it in NVDA's
+- nvda_press_keys, nvda_type_text, nvda_set_value, nvda_activate_window, nvda_focus_object, nvda_activate_object
+  and nvda_audit_focus_order act on the user's computer. They work only if the user has allowed it in NVDA's
   settings, NVDA may ask the user first, and the user may limit them to some applications (appNotAllowed).
   Say what you are about to do before doing it, and never retry after a controlDenied error.
   Every action is written to a log the user can read; nvda_get_action_log shows it.
 - For developers: nvda_preview_speech says what NVDA would announce for controls without moving focus;
-  nvda_trace_events shows the events NVDA handles and what it said for each (why NVDA is silent);
+  nvda_inspect_object shows a control's IAccessible2 attributes, containers and children, and how an add-on
+  could recognize it; nvda_trace_events shows the events NVDA handles and what it said for each (why NVDA is
+  silent), also from a background window;
   nvda_get_log reads NVDA's log; nvda_get_output_history shows beeps, sounds and braille;
   nvda_get_dev_info is NVDA+F1; nvda_list_scripts shows commands and keys; nvda_run_script runs a command;
   nvda_reload_plugins reloads add-on code; nvda_get_settings reads settings;
@@ -65,6 +76,11 @@ class TextSource(str, Enum):
     FOCUS = "focus"
     NAVIGATOR = "navigator"
     REVIEW = "review"
+
+
+class ObjectTarget(str, Enum):
+    FOCUS = "focus"
+    NAVIGATOR = "navigator"
 
 
 FormatParam = Annotated[
@@ -237,6 +253,17 @@ async def nvda_get_object_tree(
             description="Where to start: 'foreground' window (default), the 'focus', or the 'navigator' object."
         ),
     ] = TreeRoot.FOREGROUND,
+    id: Annotated[
+        int | None,
+        Field(ge=1, description="Instead of root, start from this control, an id from nvda_find_objects."),
+    ] = None,
+    window: Annotated[
+        int | None,
+        Field(
+            description="Instead of root, start from this window, a handle from nvda_list_windows, "
+            "even if it is in the background. In browsers and Electron apps it starts from the web document."
+        ),
+    ] = None,
     max_depth: Annotated[
         int, Field(ge=1, le=10, description="How many levels below the root to include.")
     ] = 4,
@@ -258,13 +285,22 @@ async def nvda_get_object_tree(
     their place. In browsers and Electron apps, 'foreground' starts from the web document.
     Long lists are cut to max_children items with a note saying how many were left out.
     Large windows are cut off at max_nodes or after 3 seconds; the result says so.
-    If it is truncated, start from 'focus' or 'navigator' instead, or lower max_depth.
+    If it is truncated, start from a control (id) or the 'focus' instead, or lower max_depth.
     To look for one control, nvda_find_objects is faster.
     """
-    result = await _call(
-        "getTree",
-        {"root": root.value, "maxDepth": max_depth, "maxNodes": max_nodes, "maxChildren": max_children},
-    )
+    if id is not None and window is not None:
+        raise ToolError("Pass id or window, not both.")
+    params: dict[str, Any] = {
+        "root": root.value,
+        "maxDepth": max_depth,
+        "maxNodes": max_nodes,
+        "maxChildren": max_children,
+    }
+    if id is not None:
+        params["id"] = id
+    if window is not None:
+        params["window"] = window
+    result = await _call("getTree", params)
     if response_format == ResponseFormat.JSON:
         return _json(result)
     header = f"{result['nodeCount']} objects"
@@ -272,6 +308,8 @@ async def nvda_get_object_tree(
         header += f", {result['rootNote']}"
     if result.get("truncated"):
         header += f" (truncated: {result['truncated']})"
+    if result.get("webPageUnavailable"):
+        header += "\n" + WEB_PAGE_UNAVAILABLE
     return _truncate("\n".join([header, "", *_tree_markdown(result["tree"])]))
 
 
@@ -641,33 +679,48 @@ async def nvda_find_objects(
         int | None,
         Field(
             ge=1,
-            description="Only search inside this control, an id from the last nvda_find_objects result, "
+            description="Only search inside this control, an id from nvda_find_objects, "
             "such as a list, dialog or region. Use it when a search of a large web page stops early.",
+        ),
+    ] = None,
+    window: Annotated[
+        int | None,
+        Field(
+            description="Search this window instead of the foreground one: a handle from nvda_list_windows. "
+            "It may be in the background or on another virtual desktop.",
         ),
     ] = None,
     response_format: FormatParam = ResponseFormat.MARKDOWN,
 ) -> str:
-    """Search the foreground window for controls by name and/or role, nearest the top of the window first.
+    """Search the foreground window, or another window, for controls by name and/or role,
+    nearest the top of the window first.
 
-    Each result has an id for nvda_focus_object and nvda_activate_object. Ids are only valid until the
-    next search. Faster and more precise than reading the whole tree or tabbing around.
+    Each result has an id for nvda_focus_object, nvda_activate_object, nvda_inspect_object and other tools.
+    Ids stay valid through later searches, until the control disappears.
+    Faster and more precise than reading the whole tree or tabbing around.
     To narrow a search, find a container first (role 'list', 'dialog', 'section') and pass its id as within.
     """
     if not name_contains and not role:
         raise ToolError("Pass name_contains, role, or both.")
+    if within is not None and window is not None:
+        raise ToolError("Pass within or window, not both.")
     params: dict[str, Any] = {"nameContains": name_contains, "role": role, "maxResults": max_results}
     if within is not None:
         params["within"] = within
+    if window is not None:
+        params["window"] = window
     result = await _call("findObjects", params)
     if response_format == ResponseFormat.JSON:
         return _json(result)
     lines = [f"{obj['id']}. {_node_summary(obj)}" for obj in result["objects"]] or ["No matching controls."]
     if result.get("truncated"):
         lines.append(f"(Search {result['truncated']}.)")
+    if result.get("webPageUnavailable"):
+        lines.append(WEB_PAGE_UNAVAILABLE)
     return _truncate("\n".join(lines))
 
 
-ObjectIdParam = Annotated[int, Field(ge=1, description="An id from the last nvda_find_objects result.")]
+ObjectIdParam = Annotated[int, Field(ge=1, description="An id from nvda_find_objects.")]
 
 
 @mcp.tool(name="nvda_focus_object", title="Focus a control", annotations=CONTROL)
@@ -705,6 +758,69 @@ async def nvda_activate_object(
         PRESS_KEYS_TIMEOUT_SECONDS,
     )
     return _action_markdown(result)
+
+
+@mcp.tool(name="nvda_set_value", title="Set a control's text (experimental)", annotations=CONTROL)
+async def nvda_set_value(
+    text: Annotated[
+        str,
+        Field(
+            max_length=2000,
+            description="The control's new text, replacing what is there. An empty string clears it.",
+        ),
+    ],
+    id: Annotated[
+        int | None,
+        Field(ge=1, description="A control from nvda_find_objects. The focused control when left out."),
+    ] = None,
+    settle_ms: SettleParam = 400,
+    timeout_ms: TimeoutParam = 3000,
+    until_speech: UntilSpeechParam = None,
+) -> str:
+    """Experimental: give an edit field new text through its accessibility API (UI Automation ValuePattern
+    or IAccessible accValue) instead of the keyboard, then report the value it has now.
+
+    It needs no focus, so it can reach a field in a background window, found with nvda_find_objects and window.
+    Many web editors (React, Lexical, as in WhatsApp Web) ignore text set this way or lose it on the next
+    key press, so check the reported value; if it did not take, use nvda_focus_object and nvda_type_text.
+    This counts as controlling the computer, like nvda_type_text.
+    """
+    params: dict[str, Any] = {"text": text, **_listen(settle_ms, timeout_ms, until_speech)}
+    if id is not None:
+        params["id"] = id
+    result = await _call("setValue", params, PRESS_KEYS_TIMEOUT_SECONDS)
+    value = result.get("object", {}).get("value")
+    if value == text or (not text and not value):
+        outcome = "The control now has this text."
+    else:
+        outcome = f"The control now reads {value!r}, not the text sent: it may not accept text this way."
+    return f"Set through {result.get('method') or '?'}. {outcome}\n" + _action_markdown(result)
+
+
+@mcp.tool(name="nvda_inspect_object", title="Inspect a control for add-on development", annotations=READ_ONLY)
+async def nvda_inspect_object(
+    target: Annotated[
+        ObjectTarget, Field(description="'focus' (default) or the 'navigator' object.")
+    ] = ObjectTarget.FOCUS,
+    id: Annotated[int | None, Field(ge=1, description="Instead, a control from nvda_find_objects.")] = None,
+    response_format: FormatParam = ResponseFormat.MARKDOWN,
+) -> str:
+    """Everything an add-on needs to recognize a control: its API and NVDA class, its IAccessible2
+    attributes (HTML tag, id, class, ARIA role, where the name came from) or UI Automation properties,
+    the containers above it, its first children, and for tables and lists how many rows exist now
+    compared with how many the application reports (virtual lists).
+
+    It ends with the most stable conditions for chooseNVDAObjectOverlayClasses, what to avoid
+    (generated class names, names made from changing content), and example code.
+    Works on controls in background windows too (nvda_find_objects with window).
+    """
+    params: dict[str, Any] = {"target": target.value}
+    if id is not None:
+        params["id"] = id
+    result = await _call("inspectObject", params)
+    if response_format == ResponseFormat.JSON:
+        return _json(result)
+    return _truncate(inspection.to_markdown(result))
 
 
 class DocumentMode(str, Enum):
@@ -980,7 +1096,14 @@ def _event_line(entry: dict[str, Any]) -> str:
         line += f" [{entry['windowClassName']}]"
     if entry.get("details"):
         line += f" {json.dumps(entry['details'], ensure_ascii=False)}"
-    if entry.get("spoken"):
+    if entry.get("background"):
+        # NVDA did not speak these, so show what the event was about instead.
+        line += "\n   From the background window: recorded only, NVDA did not act on it"
+        if entry.get("text"):
+            line += f"\n   Text: {entry['text']}"
+        if entry.get("value"):
+            line += f"\n   Value: {entry['value']}"
+    elif entry.get("spoken"):
         line += f"\n   NVDA said: {entry['spoken']}"
     elif not entry.get("spokenNearby"):
         line += "\n   NVDA said nothing"
@@ -1017,6 +1140,15 @@ async def nvda_trace_events(
             description="With start: only record events from this application, such as 'mwmod'.",
         ),
     ] = None,
+    background_window: Annotated[
+        int | None,
+        Field(
+            description="With start: also ask NVDA for events from this window while it is in the background, "
+            "a handle from nvda_list_windows, as an add-on can with eventHandler.requestEvents. "
+            "NVDA normally ignores most of them. They are recorded with the control's value and the text of "
+            "live regions, but NVDA does not act on them.",
+        ),
+    ] = None,
     after_id: Annotated[
         int,
         Field(
@@ -1041,19 +1173,29 @@ async def nvda_trace_events(
 
     This answers "why did NVDA say nothing?": either the application sent no event,
     or NVDA got one and chose not to speak. Start tracing, act (nvda_press_keys or the user), then read.
-    Tracing stops by itself after 10 minutes.
+    With background_window it also shows whether an add-on could follow a window it is not in,
+    such as new messages in a chat. Tracing stops by itself after 10 minutes.
     """
     params: dict[str, Any] = {"action": action.value}
     if action == TraceAction.START:
         params.update({"events": events or [], "app": app})
+        if background_window is not None:
+            params["backgroundWindow"] = background_window
         result = await _call("traceEvents", params)
         scope = ", ".join(events) if events else "all events"
         if app:
             scope += f" in {app}"
-        return (
+        text = (
             f"Tracing {scope}. Read with after_id {result['afterId']}. "
             f"It stops by itself after {result['stopsAfterSeconds'] // 60} minutes."
         )
+        background = result.get("background")
+        if background:
+            text += (
+                f"\nAlso asked NVDA for {', '.join(background['events'])} from that window in the background "
+                f"(window classes: {', '.join(background['windowClasses'])})."
+            )
+        return text
     params.update({"afterId": after_id, "waitMs": wait_ms, "limit": limit})
     result = await _call("traceEvents", params, timeout=wait_ms / 1000 + 10)
     if response_format == ResponseFormat.JSON:
@@ -1124,19 +1266,12 @@ async def nvda_get_output_history(
     return _truncate("\n".join(lines))
 
 
-class ObjectTarget(str, Enum):
-    FOCUS = "focus"
-    NAVIGATOR = "navigator"
-
-
 @mcp.tool(name="nvda_get_dev_info", title="Developer info", annotations=READ_ONLY)
 async def nvda_get_dev_info(
     target: Annotated[
         ObjectTarget, Field(description="'focus' (default) or the 'navigator' object.")
     ] = ObjectTarget.FOCUS,
-    id: Annotated[
-        int | None, Field(ge=1, description="Instead, a control from the last nvda_find_objects result.")
-    ] = None,
+    id: Annotated[int | None, Field(ge=1, description="Instead, a control from nvda_find_objects.")] = None,
 ) -> str:
     """NVDA's developer info for a control, like NVDA+F1: its accessibility API properties
     (IAccessible, UIA, IA2), window, Python classes including overlay classes, and app module.
@@ -1285,9 +1420,7 @@ async def nvda_preview_speech(
             )
         ),
     ] = PreviewTarget.FOCUS,
-    id: Annotated[
-        int | None, Field(ge=1, description="Instead, one control from the last nvda_find_objects result.")
-    ] = None,
+    id: Annotated[int | None, Field(ge=1, description="Instead, one control from nvda_find_objects.")] = None,
     max_results: Annotated[
         int, Field(ge=1, le=100, description="With 'window': stop after this many controls.")
     ] = 50,

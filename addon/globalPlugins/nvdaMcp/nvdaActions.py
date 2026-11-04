@@ -26,16 +26,20 @@ import queueHandler
 import speech
 import synthDriverHandler
 import textInfos
+import treeInterceptorHandler
 import ui
 import versionInfo
 import winUser
 from browseMode import BrowseModeTreeInterceptor, reportPassThrough
+from comInterfaces import IAccessible2Lib as IA2
 from cursorManager import CursorManager
 from gui.guiHelper import wxCallOnMain
 from keyboardHandler import KeyboardInputGesture, ignoreInjection
 from logHandler import log
 from NVDAObjects import NVDAObject
-from NVDAObjects.IAccessible import getNVDAObjectFromEvent
+from NVDAObjects.IAccessible import IAccessible, getNVDAObjectFromEvent
+from NVDAObjects.UIA import UIA
+from NVDAObjects.window import Window
 from treeInterceptorHandler import TreeInterceptor
 from utils.security import isLockScreenModeActive
 
@@ -43,7 +47,9 @@ from . import windows
 from .actionLog import ActionLog
 from .bridge import BridgeError, Handler
 from .configSpec import CONFIG_SECTION, parseAllowedApps
+from .objectRegistry import ObjectRegistry
 from .speechLog import SpeechLog
+from .treeWalk import searchTrees, walkTree
 
 addonHandler.initTranslation()
 
@@ -67,6 +73,13 @@ MAX_TYPE_DELAY_MS = 200
 MAX_WAIT_FOR_SPEECH_SECONDS = 120.0
 MAX_FIND_RESULTS = 50
 MAX_FIND_VISITS = 5000
+# Found controls keep their ids through later searches; only this many of the newest are remembered.
+MAX_KEPT_OBJECTS = 500
+MAX_INSPECT_CHILDREN = 10
+MAX_INSPECT_ANCESTORS = 40
+# Bounds counting the rows a table or list has loaded, which web apps limit to those near the screen.
+MAX_ROW_COUNT_VISITS = 3000
+ROW_COUNT_DEPTH = 3
 MAX_ELEMENTS = 200
 # Browse mode quick navigation types, as NVDA names them.
 ELEMENT_TYPES = (
@@ -188,59 +201,20 @@ def _describeWithAncestors(obj: NVDAObject, ancestors: list[NVDAObject]) -> dict
 
 
 def _walkTree(root: NVDAObject, maxDepth: int, maxNodes: int, maxChildren: int | None) -> dict[str, Any]:
-	"""Depth-first walk using firstChild/next, bounded by depth, node count and time.
-
-	Unnamed layout containers below the root are left out and their children shown in their place,
-	so depth and node limits are spent on objects a user would actually meet.
-	:param maxChildren: Show at most this many children of any object, so one long list
-		does not use up the node limit. The node says how many were left out.
-	"""
-	deadline = time.monotonic() + TREE_TIME_BUDGET_SECONDS
-	nodeCount = 0
-	truncatedReason: str | None = None
-
-	def childrenOf(obj: NVDAObject, depth: int, nesting: int) -> list[dict[str, Any]]:
-		nonlocal nodeCount, truncatedReason
-		children: list[dict[str, Any]] = []
-		child = _safeGet(obj, "firstChild")
-		while child is not None:
-			if maxChildren is not None and len(children) >= maxChildren:
-				children.append({"moreChildren": True})
-				break
-			if nodeCount >= maxNodes:
-				truncatedReason = f"stopped after {maxNodes} nodes"
-				break
-			if time.monotonic() > deadline:
-				truncatedReason = f"stopped after {TREE_TIME_BUDGET_SECONDS} seconds"
-				break
-			if nesting >= MAX_TREE_NESTING:
-				truncatedReason = f"stopped at {MAX_TREE_NESTING} levels of nesting"
-				break
-			if _isLayoutOnly(child):
-				children.extend(childrenOf(child, depth, nesting + 1))
-			else:
-				children.append(visit(child, depth + 1, nesting + 1))
-			child = _safeGet(child, "next")
-		return children
-
-	def visit(obj: NVDAObject, depth: int, nesting: int) -> dict[str, Any]:
-		nonlocal nodeCount
-		nodeCount += 1
-		node = describeObject(obj)
-		if depth < maxDepth:
-			children = childrenOf(obj, depth, nesting)
-			if children and children[-1].get("moreChildren"):
-				children.pop()
-				childCount = _safeGet(obj, "childCount")
-				# childCount also counts layout containers, so the number is only a guide when children were flattened.
-				hasCount = isinstance(childCount, int) and childCount > len(children)
-				node["moreChildren"] = childCount - len(children) if hasCount else True
-			if children:
-				node["children"] = children
-		return node
-
-	tree = visit(root, 0, 0)
-	return {"nodeCount": nodeCount, "truncated": truncatedReason, "tree": tree}
+	"""Walk the tree below root within limits, as :func:`treeWalk.walkTree` describes."""
+	return walkTree(
+		root,
+		maxDepth,
+		maxNodes,
+		maxChildren,
+		firstChild=lambda obj: _safeGet(obj, "firstChild"),
+		nextSibling=lambda obj: _safeGet(obj, "next"),
+		describe=describeObject,
+		isLayoutOnly=_isLayoutOnly,
+		childCount=lambda obj: _safeGet(obj, "childCount"),
+		timeBudgetSeconds=TREE_TIME_BUDGET_SECONDS,
+		maxNesting=MAX_TREE_NESTING,
+	)
 
 
 def _readLines(info: textInfos.TextInfo) -> tuple[str, bool]:
@@ -301,27 +275,248 @@ def findObjects(
 	:param predicate: When given, objects must also satisfy it.
 	:return: The matches, nearest the root first, and why the search stopped early, if it did.
 	"""
-	deadline = time.monotonic() + TREE_TIME_BUDGET_SECONDS
-	matches: list[NVDAObject] = []
-	queue: deque[tuple[NVDAObject, int]] = deque([(root, 0)])
+	return _searchRoots([root], nameContains, role, maxResults, predicate)
+
+
+def _searchRoots(
+	roots: list[NVDAObject],
+	nameContains: str | None,
+	role: str | None,
+	maxResults: int,
+	predicate: Callable[[NVDAObject], bool] | None = None,
+	matches: list[NVDAObject] | None = None,
+) -> tuple[list[NVDAObject], str | None]:
+	"""Search several roots in turn within one time budget, as :func:`treeWalk.searchTrees` describes.
+
+	:param matches: Controls already found, such as the focus, that count towards maxResults.
+	"""
+	return searchTrees(
+		roots,
+		lambda obj: _objectMatches(obj, nameContains, role, predicate),
+		maxResults,
+		firstChild=lambda obj: _safeGet(obj, "firstChild"),
+		nextSibling=lambda obj: _safeGet(obj, "next"),
+		timeBudgetSeconds=TREE_TIME_BUDGET_SECONDS,
+		maxVisits=MAX_FIND_VISITS,
+		maxNesting=MAX_TREE_NESTING,
+		found=matches,
+	)
+
+
+# The child window that holds a web document's accessibility tree, in Chromium browsers and Electron apps.
+# Chromium removes it while the window is hidden, and creates it again when the window is shown.
+CHROMIUM_DOCUMENT_WINDOW_CLASS = "Chrome_RenderWidgetHostHWND"
+
+
+def _windowRoots(handle: Any) -> list[NVDAObject]:
+	"""Where to search a window that may be in the background: the web documents in it, then the window.
+
+	NVDA's focus and browse mode only cover the foreground window,
+	so documents are also found through the child windows that hold them.
+	"""
+	if not isinstance(handle, int) or not windows.isWindow(handle):
+		raise BridgeError("noSuchWindow", "That window no longer exists. Call listWindows again.")
+	roots: list[NVDAObject] = []
+	for treeInterceptor in list(treeInterceptorHandler.runningTable):
+		document = _safeGet(treeInterceptor, "rootNVDAObject")
+		documentWindow = _safeGet(document, "windowHandle")
+		if documentWindow and winUser.getAncestor(documentWindow, winUser.GA_ROOT) == handle:
+			roots.append(document)
+	for child, className in windows.childWindows(handle):
+		if className != CHROMIUM_DOCUMENT_WINDOW_CLASS:
+			continue
+		document = getNVDAObjectFromEvent(child, winUser.OBJID_CLIENT, winUser.CHILDID_SELF)
+		if document is not None and document not in roots:
+			roots.append(document)
+	roots.append(Window(windowHandle=handle))
+	return roots
+
+
+def _isWebPageUnavailable(handle: int, roots: list[NVDAObject]) -> bool:
+	"""Whether a Chromium browser or Electron app window offers only the browser around its page.
+
+	Chromium removes the child window that holds a page some time after its window is hidden,
+	and NVDA then drops its browse mode document, so neither leads to the page any more.
+	"""
+	return len(roots) == 1 and windows.className(handle).startswith("Chrome_WidgetWin")
+
+
+def _apiName(obj: NVDAObject) -> str:
+	if isinstance(obj, UIA):
+		return "UIA"
+	if isinstance(obj, IAccessible):
+		return (
+			"IAccessible2"
+			if isinstance(_safeGet(obj, "IAccessibleObject"), IA2.IAccessible2)
+			else "IAccessible"
+		)
+	return type(obj).__mro__[1].__name__ if len(type(obj).__mro__) > 1 else type(obj).__name__
+
+
+def _ia2Attributes(obj: NVDAObject) -> dict[str, str]:
+	"""The IAccessible2 object attributes: for web content, the HTML tag, id, class, ARIA role and more."""
+	if not isinstance(obj, IAccessible):
+		return {}
+	return dict(_safeGet(obj, "IA2Attributes") or {})
+
+
+# The IAccessible2 attributes that identify a container in an ancestor path.
+_PATH_ATTRIBUTES = ("tag", "xml-roles", "id")
+
+
+def _pathEntry(obj: NVDAObject) -> dict[str, Any]:
+	role = _safeGet(obj, "role")
+	attributes = _ia2Attributes(obj)
+	entry = {
+		"role": role.displayString if role is not None else None,
+		"name": _safeGet(obj, "name"),
+		"attributes": {key: attributes[key] for key in _PATH_ATTRIBUTES if attributes.get(key)},
+	}
+	return {key: value for key, value in entry.items() if value not in (None, "", {})}
+
+
+def _ancestorPath(obj: NVDAObject) -> list[dict[str, Any]]:
+	"""The containers from the web document, or else the window, down to obj's parent.
+
+	Unnamed layout containers are left out unless their ARIA role or id could identify them.
+	"""
+	desktop = api.getDesktopObject()
+	path = []
+	parent = _safeGet(obj, "parent")
+	while parent is not None and parent != desktop and len(path) < MAX_INSPECT_ANCESTORS:
+		attributes = _ia2Attributes(parent)
+		if not _isLayoutOnly(parent) or attributes.get("xml-roles") or attributes.get("id"):
+			path.insert(0, _pathEntry(parent))
+		# The browser's own windows above a web page tell an add-on nothing about the page.
+		if _safeGet(parent, "role") == controlTypes.Role.DOCUMENT:
+			break
+		parent = _safeGet(parent, "parent")
+	return path
+
+
+_ROW_ROLES = frozenset(
+	{controlTypes.Role.TABLEROW, controlTypes.Role.LISTITEM, controlTypes.Role.TREEVIEWITEM}
+)
+_ROW_CONTAINER_ROLES = frozenset(
+	{controlTypes.Role.TABLE, controlTypes.Role.DATAGRID, controlTypes.Role.LIST, controlTypes.Role.TREEVIEW}
+)
+
+
+def _countLoadedRows(container: NVDAObject) -> tuple[int, bool]:
+	"""Count the rows or items of a table, list or tree that exist in the accessibility tree now.
+
+	Web apps often create only the rows near the screen, while saying how many there are in total.
+	:return: The count, and whether counting stopped before looking everywhere.
+	"""
+	count = 0
 	visits = 0
+	queue: deque[tuple[NVDAObject, int]] = deque([(container, 0)])
 	while queue:
-		obj, nesting = queue.popleft()
-		visits += 1
-		if visits > MAX_FIND_VISITS:
-			return matches, f"stopped after looking at {MAX_FIND_VISITS} objects"
-		if time.monotonic() > deadline:
-			return matches, f"stopped after {TREE_TIME_BUDGET_SECONDS} seconds"
-		if obj is not root and _objectMatches(obj, nameContains, role, predicate):
-			matches.append(obj)
-			if len(matches) >= maxResults:
-				return matches, f"stopped at {maxResults} results"
-		if nesting < MAX_TREE_NESTING:
-			child = _safeGet(obj, "firstChild")
-			while child is not None:
-				queue.append((child, nesting + 1))
-				child = _safeGet(child, "next")
-	return matches, None
+		obj, depth = queue.popleft()
+		child = _safeGet(obj, "firstChild")
+		while child is not None:
+			visits += 1
+			if visits > MAX_ROW_COUNT_VISITS:
+				return count, True
+			if _safeGet(child, "role") in _ROW_ROLES:
+				count += 1
+			elif depth + 1 < ROW_COUNT_DEPTH:
+				queue.append((child, depth + 1))
+			child = _safeGet(child, "next")
+	return count, False
+
+
+def _tableInfo(obj: NVDAObject) -> dict[str, Any] | None:
+	if _safeGet(obj, "role") not in _ROW_CONTAINER_ROLES:
+		return None
+	loaded, isCut = _countLoadedRows(obj)
+	info: dict[str, Any] = {"loadedRows": loaded}
+	if isCut:
+		info["loadedRowsIsCut"] = True
+	for key in ("rowCount", "columnCount"):
+		value = _safeGet(obj, key)
+		if isinstance(value, int) and value >= 0:
+			info[key] = value
+	return info
+
+
+def _meaningfulChildren(obj: NVDAObject, limit: int, nesting: int = 0) -> list[NVDAObject]:
+	"""The first children of obj, with unnamed layout containers replaced by what is inside them."""
+	found: list[NVDAObject] = []
+	child = _safeGet(obj, "firstChild")
+	while child is not None and len(found) < limit:
+		if _isLayoutOnly(child) and nesting < ROW_COUNT_DEPTH * 2:
+			found += _meaningfulChildren(child, limit - len(found), nesting + 1)
+		else:
+			found.append(child)
+		child = _safeGet(child, "next")
+	return found
+
+
+def inspectObject(obj: NVDAObject) -> dict[str, Any]:
+	"""What an add-on developer needs to recognize a control: its API, attributes, containers and children."""
+	role = _safeGet(obj, "role")
+	result: dict[str, Any] = {
+		"object": describeObject(obj),
+		"roleConstant": role.name if role is not None else None,
+		"api": _apiName(obj),
+		"nvdaClass": f"{type(obj).__module__}.{type(obj).__qualname__}",
+		"attributes": _ia2Attributes(obj),
+		"ancestors": _ancestorPath(obj),
+	}
+	if isinstance(obj, UIA):
+		element = _safeGet(obj, "UIAElement")
+		result["uia"] = {
+			key: value
+			for key, value in (
+				("automationId", _safeGet(obj, "UIAAutomationId")),
+				("className", _safeGet(element, "CurrentClassName") if element is not None else None),
+				("frameworkId", _safeGet(obj, "UIAFrameworkId")),
+			)
+			if value
+		}
+	children = [_pathEntry(child) for child in _meaningfulChildren(obj, MAX_INSPECT_CHILDREN)]
+	childCount = _safeGet(obj, "childCount")
+	result["children"] = {
+		"count": childCount if isinstance(childCount, int) else len(children),
+		"first": children,
+	}
+	table = _tableInfo(obj)
+	if table is not None:
+		result["table"] = table
+	return {key: value for key, value in result.items() if value not in (None, "", {}, [])}
+
+
+def _setObjectValue(obj: NVDAObject, text: str) -> str:
+	"""Give a control new text through its accessibility API, without keyboard input or focus.
+
+	:return: The API that was used.
+	"""
+	if isinstance(obj, UIA):
+		valuePattern = _safeGet(obj, "UIAValuePattern")
+		if valuePattern is not None:
+			try:
+				valuePattern.SetValue(text)
+			except Exception as error:  # noqa: BLE001 - COMError, or the control refusing
+				raise BridgeError(
+					"setValueFailed",
+					f"The control refused the text through UI Automation ({error}). "
+					"Focus it and use typeText instead.",
+				)
+			return "UI Automation ValuePattern"
+	if isinstance(obj, IAccessible):
+		try:
+			obj.IAccessibleObject.accValue[obj.IAccessibleChildID] = text
+		except Exception as error:  # noqa: BLE001 - COMError, or the control refusing
+			raise BridgeError(
+				"setValueFailed",
+				f"The control refused the text through IAccessible ({error}). Focus it and use typeText instead.",
+			)
+		return "IAccessible accValue"
+	raise BridgeError(
+		"noValue",
+		"This control cannot take text through its accessibility API. Focus it and use typeText instead.",
+	)
 
 
 def _browseModeDocument() -> BrowseModeTreeInterceptor | None:
@@ -386,8 +581,8 @@ class NvdaActions:
 		self._wasControlRevoked = False
 		# One action at a time, so concurrent requests cannot interleave keys or steal each other's speech.
 		self._controlLock = threading.Lock()
-		# Results of the last findObjects call, addressed by 1-based id in focusObject and activateObject.
-		self._foundObjects: list[NVDAObject] = []
+		# Controls found by findObjects and previewSpeech, addressed by id in focusObject, activateObject and others.
+		self._objects: ObjectRegistry[NVDAObject] = ObjectRegistry(MAX_KEPT_OBJECTS)
 		# Results of the last listElements call, addressed by 1-based id in moveToElement.
 		self._foundElements: list[Any] = []
 
@@ -413,6 +608,8 @@ class NvdaActions:
 			"findObjects": self.onMain(self._findObjectsHandler),
 			"focusObject": self._focusObject,
 			"activateObject": self._activateObject,
+			"inspectObject": self.onMain(self._inspectObject),
+			"setValue": self._setValue,
 			"getActionLog": self._getActionLog,
 			"setDocumentMode": self._setDocumentMode,
 			"findInPage": self._findInPage,
@@ -479,12 +676,24 @@ class NvdaActions:
 		rootName = params.get("root", "foreground")
 		if rootName not in roots:
 			raise BridgeError("badParams", f"root must be one of {', '.join(roots)}.")
+		if params.get("id") is not None and params.get("window") is not None:
+			raise BridgeError("badParams", "Pass id or window, not both.")
 		maxDepth = int(params.get("maxDepth", 4))
 		maxNodes = min(int(params.get("maxNodes", 150)), MAX_TREE_NODES)
 		maxChildren = int(params["maxChildren"]) if params.get("maxChildren") else None
-		root = roots[rootName]()
 		rootNote = None
-		if rootName == "foreground":
+		isWebPageUnavailable = False
+		if params.get("id") is not None:
+			root = self.foundObjectOnMain(params["id"])
+		elif params.get("window") is not None:
+			windowRoots = _windowRoots(params["window"])
+			root = windowRoots[0]
+			if len(windowRoots) > 1:
+				rootNote = "started from the web document in that window"
+			isWebPageUnavailable = _isWebPageUnavailable(params["window"], windowRoots)
+		else:
+			root = roots[rootName]()
+		if rootName == "foreground" and params.get("id") is None and params.get("window") is None:
 			# Browsers and Electron apps keep their content in a document that the window's
 			# own children do not lead to, so start from the document the user is in.
 			treeInterceptor = _safeGet(api.getFocusObject(), "treeInterceptor")
@@ -495,6 +704,8 @@ class NvdaActions:
 		result = _walkTree(root, maxDepth, maxNodes, maxChildren)
 		if rootNote:
 			result["rootNote"] = rootNote
+		if isWebPageUnavailable:
+			result["webPageUnavailable"] = True
 		return result
 
 	def _getText(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -713,17 +924,27 @@ class NvdaActions:
 		if nameContains is None and role is None:
 			raise BridgeError("badParams", "Pass nameContains, role, or both.")
 		maxResults = min(int(params.get("maxResults", 20)), MAX_FIND_RESULTS)
-		if params.get("within") is None:
-			matches, stoppedReason = self.searchForeground(nameContains, role, maxResults)
-		else:
+		if params.get("within") is not None and params.get("window") is not None:
+			raise BridgeError("badParams", "Pass within or window, not both.")
+		isWebPageUnavailable = False
+		if params.get("within") is not None:
 			# A large web page can use up the search budget before the part that matters.
 			container = self.foundObjectOnMain(params["within"])
 			matches, stoppedReason = findObjects(container, nameContains, role, maxResults)
-			self._foundObjects = matches
-		return {
-			"objects": [{"id": index, **describeObject(obj)} for index, obj in enumerate(matches, 1)],
+		elif params.get("window") is not None:
+			windowRoots = _windowRoots(params["window"])
+			matches, stoppedReason = _searchRoots(windowRoots, nameContains, role, maxResults)
+			isWebPageUnavailable = _isWebPageUnavailable(params["window"], windowRoots)
+		else:
+			matches, stoppedReason = self.searchForeground(nameContains, role, maxResults)
+		ids = self.registerObjects(matches)
+		result: dict[str, Any] = {
+			"objects": [{"id": objectId, **describeObject(obj)} for objectId, obj in zip(ids, matches)],
 			"truncated": stoppedReason,
 		}
+		if isWebPageUnavailable:
+			result["webPageUnavailable"] = True
+		return result
 
 	def searchForeground(
 		self,
@@ -734,7 +955,6 @@ class NvdaActions:
 	) -> tuple[list[NVDAObject], str | None]:
 		"""Search the foreground window, and the web document in it if any, on the main thread.
 
-		The matches become the objects that ids in focusObject, activateObject and other tools refer to.
 		The focused control comes first when it matches, so a search cut short never misses it,
 		then the web document focus is in, if any, then the rest of the window.
 		"""
@@ -744,32 +964,27 @@ class NvdaActions:
 		document = _safeGet(treeInterceptor, "rootNVDAObject") if treeInterceptor else None
 		# Browsers and Electron apps keep their content in a document the window's own children may not lead to.
 		roots = [root for root in (document, api.getForegroundObject()) if root is not None]
-		stoppedReasons = []
-		for root in roots:
-			if len(matches) >= maxResults:
-				break
-			moreMatches, stoppedReason = findObjects(
-				root, nameContains, role, maxResults - len(matches), predicate
-			)
-			matches += [match for match in moreMatches if match not in matches]
-			if stoppedReason:
-				stoppedReasons.append(stoppedReason)
-		if len(matches) >= maxResults:
-			stoppedReason = f"stopped at {maxResults} results"
-		else:
-			stoppedReason = "; ".join(stoppedReasons) or None
-		self._foundObjects = matches
-		return matches, stoppedReason
+		return _searchRoots(roots, nameContains, role, maxResults, predicate, matches)
+
+	def registerObjects(self, objects: list[NVDAObject]) -> list[int]:
+		"""Give found controls ids that tools such as focusObject and activateObject accept."""
+		return self._objects.add(objects)
 
 	@property
-	def foundObjects(self) -> list[NVDAObject]:
-		return list(self._foundObjects)
+	def lastFound(self) -> list[tuple[int, NVDAObject]]:
+		"""The ids and controls of the most recent search."""
+		return self._objects.last
 
 	def foundObjectOnMain(self, objectId: Any) -> NVDAObject:
-		"""The object with this id from the last search. Must be called on the main thread."""
-		if not isinstance(objectId, int) or not 1 <= objectId <= len(self._foundObjects):
-			raise BridgeError("badParams", "id must be one of the ids from the last findObjects call.")
-		obj = self._foundObjects[objectId - 1]
+		"""The control with this id from findObjects or previewSpeech. Must be called on the main thread."""
+		obj = self._objects.get(objectId) if isinstance(objectId, int) else None
+		if obj is None:
+			if isinstance(objectId, int) and self._objects.isForgotten(objectId):
+				raise BridgeError(
+					"staleObject",
+					f"Id {objectId} is from too many searches ago and was forgotten. Call findObjects again.",
+				)
+			raise BridgeError("badParams", "id must be an id from findObjects.")
 		if _safeGet(obj, "role") is None:
 			raise BridgeError("staleObject", "That control is gone. Call findObjects again.")
 		return obj
@@ -807,6 +1022,41 @@ class NvdaActions:
 			params,
 			targetApp=wxCallOnMain(_appNameOf, obj),
 		)
+
+	def _inspectObject(self, params: dict[str, Any]) -> dict[str, Any]:
+		if params.get("id") is not None:
+			return inspectObject(self.foundObjectOnMain(params["id"]))
+		target = params.get("target", "focus")
+		if target == "focus":
+			return inspectObject(api.getFocusObject())
+		if target == "navigator":
+			return inspectObject(api.getNavigatorObject())
+		raise BridgeError("badParams", "target must be focus or navigator, or pass an id from findObjects.")
+
+	def _setValue(self, params: dict[str, Any]) -> dict[str, Any]:
+		"""Runs on the bridge thread, like typeText. Works on controls in background windows too."""
+		self.ensureUnlocked()
+		text = params.get("text")
+		if not isinstance(text, str):
+			raise BridgeError("badParams", "text must be a string. Pass an empty string to clear the field.")
+		if len(text) > MAX_TYPE_CHARS:
+			raise BridgeError("badParams", f"At most {MAX_TYPE_CHARS} characters per call.")
+		obj = self.foundObject(params) if params.get("id") is not None else wxCallOnMain(api.getFocusObject)
+		used: dict[str, str] = {}
+
+		def perform() -> None:
+			used["method"] = wxCallOnMain(_setObjectValue, obj, text)
+
+		result = self.runControlled(
+			"setValue",
+			{"object": wxCallOnMain(_safeGet, obj, "name"), "text": text},
+			perform,
+			params,
+			targetApp=wxCallOnMain(_appNameOf, obj),
+		)
+		result["method"] = used.get("method")
+		result["object"] = wxCallOnMain(describeObject, obj)
+		return result
 
 	def _setDocumentMode(self, params: dict[str, Any]) -> dict[str, Any]:
 		self.ensureUnlocked()
