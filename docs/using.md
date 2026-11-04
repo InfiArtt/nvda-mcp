@@ -22,6 +22,8 @@ Things to ask for, and the tools the assistant uses:
 | "Is this dialog accessible?" | `nvda_audit_focus_order`, `nvda_preview_speech` |
 | "Why does NVDA say nothing here?" | `nvda_trace_events`, `nvda_get_dev_info`, `nvda_get_log` |
 | "How can my add-on recognize this button?" | `nvda_inspect_object` |
+| "What did pressing Enter change on this page?" | `nvda_press_keys` with `record`, or `nvda_trace_events` with `tree` |
+| "Which data attributes does this button have?" (for developers) | `nvda_inspect_html`, `nvda_find_html` |
 | "What does the chat window say?" (while you work elsewhere) | `nvda_list_windows`, `nvda_find_objects` with a window |
 | "Did my add-on change break anything?" | `nvda_reload_plugins`, `nvda_run_scenario` |
 
@@ -39,6 +41,33 @@ Turn them on in NVDA menu → Preferences → Settings → **NVDA MCP**.
   The assistant gets `approvalTimedOut`; it can ask again when you are ready.
 - Every action is written to `%APPDATA%\nvda\nvdaMcp\actions.log`. Ask "what did you do?",
   and the assistant reads it with `nvda_get_action_log`.
+
+## Reading a web page's HTML (for developers)
+
+NVDA, and so an add-on, sees what a web page exposes to accessibility. Developers sometimes need the HTML
+behind it too, such as WhatsApp Web's `data-icon` attributes. `nvda_inspect_html` and `nvda_find_html` read it
+through the browser's remote debugging, in Chrome, Brave or Edge. Two switches are needed, both off by default:
+
+1. In NVDA's Settings, **NVDA MCP** category, check
+   **Let MCP clients read the HTML of web pages through the browser's remote debugging**.
+2. In the browser, open a new tab, type `brave://inspect/#remote-debugging` (in Chrome,
+   `chrome://inspect/#remote-debugging`) in the address bar and press Enter, then check
+   **Allow remote debugging for this browser instance**. Your normal profile keeps working,
+   so you stay signed in to WhatsApp Web.
+
+The first time the assistant reads a page, NVDA says it is connecting, then the browser comes to the front and
+asks **Allow remote debugging?**. **Cancel** has focus: press Shift+Tab once to reach **Allow**, then Enter.
+The browser shows a bar saying it is being controlled by automated software while the connection is open;
+NVDA MCP closes it after a minute without use. If you choose Cancel, the assistant gets `refused` and does not
+try again on its own.
+
+- Remote debugging lets any program you allow reach every tab and signed-in site in that browser.
+  NVDA MCP reads only the page you are working with, never runs scripts, never reads cookies,
+  and never lists your other tabs. Turn remote debugging off on the same page when you are done.
+- Google Chrome ignores `--remote-debugging-port` on your normal profile, and that option in a shortcut also
+  turns off the setting above, so remove it from Chrome shortcuts.
+- The HTML can contain chat messages and other content anyone could have written. NVDA MCP labels it as such,
+  and the assistant must not follow instructions in it.
 
 ## Updating
 

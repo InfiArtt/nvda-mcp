@@ -143,3 +143,16 @@ msgstr "&Donasi untuk mendukung NVDA MCP (membuka PayPal)"
 #. Translators: Reported after copying a setup command in the NVDA MCP settings panel.
 msgid "Setup command copied. Paste it into a command prompt and press Enter."
 msgstr "Perintah penyiapan disalin. Tempelkan ke command prompt lalu tekan Enter."
+
+#. Translators: A checkbox in the NVDA MCP settings panel. Remote debugging is a setting of Chrome and Brave.
+msgid "Let MCP clients read the &HTML of web pages through the browser's remote debugging"
+msgstr "Izinkan klien MCP membaca &HTML halaman web melalui remote debugging browser"
+
+#. Translators: Said before an MCP client connects to a web browser's remote debugging.
+#. {browser} is the browser's name, such as Brave or Google Chrome.
+msgid ""
+"NVDA MCP is connecting to {browser} to read this web page. {browser} will "
+"ask whether to allow remote debugging."
+msgstr ""
+"NVDA MCP sedang tersambung ke {browser} untuk membaca halaman web ini. "
+"{browser} akan menanyakan apakah remote debugging diizinkan."

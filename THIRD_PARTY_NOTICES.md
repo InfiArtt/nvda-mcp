@@ -21,7 +21,8 @@ When you install the server, pip or uv downloads the packages below from the Pyt
 each comes with its own license file. They are listed here for your information.
 
 The versions are the ones current when this list was last checked; the server accepts newer ones within the ranges
-in `pyproject.toml`. Its direct dependencies are **mcp** and **httpx**; the rest are what those depend on.
+in `pyproject.toml`. Its direct dependencies are **mcp**, **httpx** and **websockets**; the rest are what those
+depend on.
 
 | Package | Version | License | Source |
 |---|---|---|---|
@@ -54,6 +55,7 @@ in `pyproject.toml`. Its direct dependencies are **mcp** and **httpx**; the rest
 | typing_extensions | 4.16.0 | PSF-2.0 | https://github.com/python/typing_extensions |
 | typing-inspection | 0.4.4 | MIT | https://github.com/pydantic/typing-inspection |
 | uvicorn | 0.54.0 | BSD-3-Clause | https://github.com/Kludex/uvicorn |
+| websockets | 17.4 | BSD-3-Clause | https://github.com/python-websockets/websockets |
 
 All of these licenses allow use with GPL software. The Apache-2.0 and MPL-2.0 packages are compatible with
 the GNU GPL version 3, which NVDA MCP's "or later" clause allows.

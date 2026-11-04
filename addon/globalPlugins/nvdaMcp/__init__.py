@@ -111,6 +111,14 @@ class NvdaMcpSettingsPanel(SettingsPanel):
 			wx.CheckBox(self, label=_("&Keep a log of every action MCP clients take")),
 		)
 		self.logActionsCheckBox.SetValue(sectionConfig["logActions"])
+		self.allowBrowserInspectionCheckBox = helper.addItem(
+			# Translators: A checkbox in the NVDA MCP settings panel. Remote debugging is a setting of Chrome and Brave.
+			wx.CheckBox(
+				self,
+				label=_("Let MCP clients read the &HTML of web pages through the browser's remote debugging"),
+			),
+		)
+		self.allowBrowserInspectionCheckBox.SetValue(sectionConfig["allowBrowserInspection"])
 		self.historySizeSpin = helper.addLabeledControl(
 			# Translators: A spin control in the NVDA MCP settings panel.
 			_("Number of spoken &messages to remember:"),
@@ -152,6 +160,7 @@ class NvdaMcpSettingsPanel(SettingsPanel):
 		sectionConfig["confirmControl"] = self.confirmControlCheckBox.IsChecked()
 		sectionConfig["allowedApps"] = self.allowedAppsEdit.GetValue().strip()
 		sectionConfig["logActions"] = self.logActionsCheckBox.IsChecked()
+		sectionConfig["allowBrowserInspection"] = self.allowBrowserInspectionCheckBox.IsChecked()
 		sectionConfig["speechHistorySize"] = self.historySizeSpin.GetValue()
 
 	def postSave(self) -> None:

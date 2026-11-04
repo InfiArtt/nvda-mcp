@@ -114,6 +114,8 @@ Di Pengaturan NVDA, kategori **NVDA MCP**:
 - **Hanya izinkan klien MCP mengontrol aplikasi ini** (kosong secara bawaan, artinya semua).
   Misalnya `notepad, winword`. Aplikasi lain ditolak.
 - **Catat setiap aksi yang dilakukan klien MCP** (menyala secara bawaan), di `%APPDATA%\nvda\nvdaMcp\actions.log`.
+- **Izinkan klien MCP membaca HTML halaman web melalui remote debugging browser** (mati secara bawaan),
+  untuk pengembang add-on aplikasi web. Browser juga bertanya kepada Anda sebelum setiap sambungan baru.
 - **Jumlah ucapan yang diingat** (500 secara bawaan).
 
 Perintah di Gestur Masukan, kategori NVDA MCP (tanpa tombol bawaan):
@@ -138,6 +140,12 @@ dan sebagian besar asisten mengirimkannya ke server penyedianya. Itu bisa mencak
 apa yang diucapkan NVDA, isi dokumen dan jendela chat, serta apa pun yang dibacakan NVDA saat Anda mengetik.
 Asisten juga bisa membaca jendela yang tidak sedang Anda lihat, misalnya jendela chat di belakang
 atau di virtual desktop lain.
+
+Jika Anda mengizinkannya membaca HTML halaman web (mati secara bawaan), perhatikan bahwa menyalakan remote
+debugging di browser membuat program yang Anda izinkan bisa menjangkau semua tab dan situs yang sedang
+login di browser itu, dan program lain di komputer Anda juga bisa meminta tersambung. NVDA MCP hanya membaca
+halaman yang sedang Anda kerjakan, tidak pernah menjalankan skrip atau membaca cookie, dan NVDA memberi tahu
+sebelum tersambung. Matikan remote debugging setelah selesai.
 
 - Sebelum mengerjakan sesuatu yang pribadi, seperti perbankan, kata sandi, atau pesan pribadi,
   tutup asisten Anda atau matikan *Izinkan klien MCP terhubung* di pengaturan NVDA.

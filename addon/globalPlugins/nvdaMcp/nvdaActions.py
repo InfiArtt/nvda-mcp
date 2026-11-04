@@ -8,6 +8,8 @@ Functions in this module touch NVDAObjects, speech and input,
 so they must run on NVDA's main thread; :class:`NvdaActions` takes care of that.
 """
 
+import ctypes
+import re
 import threading
 import time
 from collections import deque
@@ -33,6 +35,8 @@ import versionInfo
 import winUser
 from browseMode import BrowseModeTreeInterceptor, reportPassThrough
 from comInterfaces import IAccessible2Lib as IA2
+from comtypes import COMMETHOD, GUID, HRESULT, IServiceProvider, IUnknown
+from comtypes.safearray import _midlSAFEARRAY
 from cursorManager import CursorManager
 from gui.guiHelper import wxCallOnMain
 from keyboardHandler import KeyboardInputGesture, ignoreInjection
@@ -48,9 +52,11 @@ from . import controlApproval, windows
 from .actionLog import ActionLog
 from .bridge import BridgeError, Handler
 from .configSpec import CONFIG_SECTION, parseAllowedApps
+from .focusCatchUp import catchUpEvents
 from .objectRegistry import ObjectRegistry
 from .speechLog import SpeechLog
 from .treeWalk import searchTrees, walkTree
+from .webIds import domNodeIdFromRuntimeId
 
 addonHandler.initTranslation()
 
@@ -117,6 +123,27 @@ def _safeGet(obj: NVDAObject, attribute: str) -> Any:
 	except Exception:  # noqa: BLE001 - applications raise COMError and others; treat all as "unknown"
 		log.debugWarning(f"Could not get {attribute}", exc_info=True)
 		return None
+
+
+def isObjectAlive(obj: NVDAObject) -> bool:
+	"""Whether an object still exists in its application.
+
+	A dead IAccessible2 object still answers role (as unknown), so ask the way NVDA's browse mode does.
+	"""
+	try:
+		handle = obj.windowHandle
+		if handle and not windows.isWindow(handle):
+			return False
+		if isinstance(obj, IAccessible):
+			accessible = obj.IAccessibleObject
+			if isinstance(accessible, IA2.IAccessible2):
+				return not accessible.states & IA2.IA2_STATE_DEFUNCT
+			accessible.accRole(obj.IAccessibleChildID)
+		elif isinstance(obj, UIA):
+			obj.UIAElement.CurrentProcessId  # noqa: B018 - raises once the element is gone
+	except Exception:  # noqa: BLE001 - COMError means the object is gone
+		return False
+	return True
 
 
 def _usesNvdaKey(gesture: KeyboardInputGesture) -> bool:
@@ -229,7 +256,7 @@ def _readLines(info: textInfos.TextInfo) -> tuple[str, bool]:
 	length = 0
 	cursor = info.copy()
 	cursor.collapse()
-	for _ in range(MAX_TEXT_LINES):
+	for _step in range(MAX_TEXT_LINES):
 		line = cursor.copy()
 		line.expand(textInfos.UNIT_LINE)
 		text = line.text.rstrip("\r\n")
@@ -340,6 +367,66 @@ def _isWebPageUnavailable(handle: int, roots: list[NVDAObject]) -> bool:
 	and NVDA then drops its browse mode document, so neither leads to the page any more.
 	"""
 	return len(roots) == 1 and windows.className(handle).startswith("Chrome_WidgetWin")
+
+
+# Chromium gives each accessible object a runtime id through IAccessibleEx, ending with Blink's DOM node id.
+# Only GetRuntimeId is called; the other methods are declared to keep the vtable in order.
+class _IAccessibleEx(IUnknown):
+	_iid_ = GUID("{F8B80ADA-2C44-48D0-89BE-5FF23C9CD875}")
+	_methods_ = [  # noqa: RUF012 - comtypes builds the interface from this list
+		COMMETHOD(
+			[],
+			HRESULT,
+			"GetObjectForChild",
+			(["in"], ctypes.c_long, "idChild"),
+			(["out", "retval"], ctypes.POINTER(ctypes.c_void_p), "pRetVal"),
+		),
+		COMMETHOD(
+			[],
+			HRESULT,
+			"GetIAccessiblePair",
+			(["out"], ctypes.POINTER(ctypes.c_void_p), "ppAcc"),
+			(["out"], ctypes.POINTER(ctypes.c_long), "pidChild"),
+		),
+		COMMETHOD(
+			[],
+			HRESULT,
+			"GetRuntimeId",
+			(["out", "retval"], ctypes.POINTER(_midlSAFEARRAY(ctypes.c_int)), "pRetVal"),
+		),
+		COMMETHOD(
+			[],
+			HRESULT,
+			"ConvertReturnedElement",
+			(["in"], ctypes.c_void_p, "pIn"),
+			(["out", "retval"], ctypes.POINTER(ctypes.c_void_p), "ppRetValOut"),
+		),
+	]
+
+
+_IID_IACCESSIBLE = GUID("{618736E0-3C3D-11CF-810C-00AA00389B71}")
+# An address with a scheme, such as https://..., data:... or about:blank.
+_ABSOLUTE_URL = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:")
+
+
+def _chromiumRuntimeId(obj: NVDAObject) -> list[int] | None:
+	"""Chromium only hands out IAccessibleEx through QueryService with IAccessible as the service."""
+	try:
+		provider = obj.IAccessibleObject.QueryInterface(IServiceProvider)
+		accessibleEx = provider.QueryService(_IID_IACCESSIBLE, _IAccessibleEx)
+		return list(accessibleEx.GetRuntimeId())
+	except Exception:  # noqa: BLE001 - not Chromium, or the object is gone
+		log.debugWarning("Could not get a runtime id", exc_info=True)
+		return None
+
+
+def _documentUrl(document: NVDAObject) -> str | None:
+	"""The address of a web document, which Chromium and Firefox give as the document's value."""
+	try:
+		value = document.IAccessibleObject.accValue(document.IAccessibleChildID)
+	except Exception:  # noqa: BLE001
+		return None
+	return value if isinstance(value, str) and _ABSOLUTE_URL.match(value) else None
 
 
 def _apiName(obj: NVDAObject) -> str:
@@ -554,22 +641,46 @@ def _isNvdaForeground(hwnd: int) -> bool:
 
 
 def _reportForeground(hwnd: int) -> None:
-	"""Tell NVDA about the control focused in a window it missed coming to the front.
+	"""Tell NVDA about a window it missed coming to the front, the way an Alt+Tab would.
 
 	Windows sends no foreground event when bringing a window forward also switches virtual desktops.
-	NVDA takes the new foreground window from the focus, so a focus event is enough.
+	See :func:`focusCatchUp.catchUpEvents` for why the window gets a focus event of its own.
 	"""
+	lastFocusWindow = _safeGet(eventHandler.lastQueuedFocusObject, "windowHandle")
+	if lastFocusWindow and winUser.isDescendantWindow(hwnd, lastFocusWindow):
+		# NVDA caught up on its own since the add-on last looked.
+		return
 	threadId = winUser.getWindowThreadProcessID(hwnd)[1]
 	focusWindow = winUser.getGUIThreadInfo(threadId).hwndFocus or hwnd
 	window = getNVDAObjectFromEvent(focusWindow, winUser.OBJID_CLIENT, winUser.CHILDID_SELF)
-	if window is None:
-		return
-	try:
-		focus = window.objectWithFocus()
-	except Exception:  # noqa: BLE001 - applications raise COMError and others
-		log.debugWarning("Could not get the focused control", exc_info=True)
-		focus = None
-	eventHandler.queueEvent("gainFocus", focus or window)
+	focus = None
+	if window is not None:
+		try:
+			focus = window.objectWithFocus()
+		except Exception:  # noqa: BLE001 - applications raise COMError and others
+			log.debugWarning("Could not get the focused control", exc_info=True)
+	focus = focus or window
+	for obj in catchUpEvents(_topContainer(focus), focus):
+		eventHandler.queueEvent("gainFocus", obj)
+
+
+def _topContainer(obj: NVDAObject | None) -> NVDAObject | None:
+	"""The container just below the desktop, as NVDA itself climbs to it when focus moves.
+
+	NVDA compares a new focus's containers with the old ones (api.setFocusObject walks ``container``),
+	so the window object announced first must be this very object: for Chromium it is a UIA window,
+	while other ways of getting "the window" give a different object, such as an IAccessible pane.
+	"""
+	desktop = api.getDesktopObject()
+	current = obj
+	for _step in range(MAX_INSPECT_ANCESTORS):
+		if current is None:
+			return None
+		container = _safeGet(current, "container")
+		if container is None or container == desktop:
+			return current
+		current = container
+	return None
 
 
 def _controlBusyError() -> BridgeError:
@@ -586,6 +697,8 @@ class NvdaActions:
 	def __init__(self, speechLog: SpeechLog, actionLog: ActionLog) -> None:
 		self._speechLog = speechLog
 		self._actionLog = actionLog
+		# Records what actions change (interactionRecorder.InteractionRecorder), set by DevTools.
+		self.recorder: Any = None
 		# One action at a time, so concurrent requests cannot interleave keys or steal each other's speech.
 		self._controlLock = threading.Lock()
 		# Controls found by findObjects and previewSpeech, addressed by id in focusObject, activateObject and others.
@@ -615,6 +728,7 @@ class NvdaActions:
 			"focusObject": self._focusObject,
 			"activateObject": self._activateObject,
 			"inspectObject": self.onMain(self._inspectObject),
+			"webElementInfo": self.onMain(self._webElementInfo),
 			"setValue": self._setValue,
 			"getActionLog": self._getActionLog,
 			"setDocumentMode": self._setDocumentMode,
@@ -991,7 +1105,7 @@ class NvdaActions:
 					f"Id {objectId} is from too many searches ago and was forgotten. Call findObjects again.",
 				)
 			raise BridgeError("badParams", "id must be an id from findObjects.")
-		if _safeGet(obj, "role") is None:
+		if not isObjectAlive(obj):
 			raise BridgeError("staleObject", "That control is gone. Call findObjects again.")
 		return obj
 
@@ -1007,6 +1121,7 @@ class NvdaActions:
 			lambda: wxCallOnMain(obj.setFocus),
 			params,
 			targetApp=wxCallOnMain(_appNameOf, obj),
+			recordTarget=obj,
 		)
 
 	def _activateObject(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -1027,7 +1142,86 @@ class NvdaActions:
 			perform,
 			params,
 			targetApp=wxCallOnMain(_appNameOf, obj),
+			recordTarget=obj,
 		)
+
+	def _webElementInfo(self, params: dict[str, Any]) -> dict[str, Any]:
+		"""What the MCP server needs to find a control's HTML element through the browser's remote debugging."""
+		if not config.conf[CONFIG_SECTION]["allowBrowserInspection"]:
+			raise BridgeError(
+				"browserInspectionDisabled",
+				"Reading web pages through the browser's remote debugging is turned off. Ask the user to check "
+				'"Let MCP clients read the HTML of web pages through the browser\'s remote debugging" '
+				"in NVDA Settings, NVDA MCP category, if they want it.",
+			)
+		if params.get("id") is not None:
+			obj = self.foundObjectOnMain(params["id"])
+		else:
+			obj = api.getNavigatorObject() if params.get("target") == "navigator" else api.getFocusObject()
+		if not isinstance(obj, IAccessible) or not isinstance(
+			_safeGet(obj, "IAccessibleObject"), IA2.IAccessible2
+		):
+			raise BridgeError(
+				"notWebContent",
+				"That control is not part of a web page NVDA reads through IAccessible2, as in Chrome, Brave or Edge.",
+			)
+		# The outermost document is the page; the server finds its tab by this address.
+		document = None
+		current = obj
+		for _step in range(MAX_INSPECT_ANCESTORS):
+			if current is None:
+				break
+			if _safeGet(current, "role") == controlTypes.Role.DOCUMENT:
+				document = current
+			current = _safeGet(current, "parent")
+		if params.get("document"):
+			# The whole page rather than one control in it.
+			if document is None:
+				raise BridgeError("notWebContent", "That control is not inside a web page.")
+			obj = document
+		runtimeId = _chromiumRuntimeId(obj)
+		domNodeId = domNodeIdFromRuntimeId(runtimeId)
+		fromParent = False
+		if domNodeId is None:
+			# Text and generated content have no element of their own; their parent does.
+			parent = _safeGet(obj, "parent")
+			domNodeId = domNodeIdFromRuntimeId(_chromiumRuntimeId(parent)) if parent is not None else None
+			fromParent = domNodeId is not None
+		appModule = _safeGet(obj, "appModule")
+		appName = appModule.appName if appModule else None
+		browser = _safeGet(appModule, "productName") or appName or "the browser"
+		if params.get("announce"):
+			if config.conf[CONFIG_SECTION]["logActions"]:
+				try:
+					self._actionLog.record("browserInspection", _safeGet(document, "name"), app=appName)
+				except OSError:
+					log.error("NVDA MCP could not write its action log", exc_info=True)
+			ui.message(
+				# Translators: Said before an MCP client connects to a web browser's remote debugging.
+				# {browser} is the browser's name, such as Brave or Google Chrome.
+				_(
+					"NVDA MCP is connecting to {browser} to read this web page. "
+					"{browser} will ask whether to allow remote debugging."
+				).format(browser=browser)
+			)
+		location = _safeGet(obj, "location")
+		documentLocation = _safeGet(document, "location") if document is not None else None
+		role = _safeGet(obj, "role")
+		return {
+			"name": _safeGet(obj, "name"),
+			"role": role.displayString if role is not None else None,
+			"appName": appName,
+			"browser": browser,
+			"processId": _safeGet(obj, "processID"),
+			"appPath": _safeGet(appModule, "appPath"),
+			"location": list(location) if location else None,
+			"attributes": _ia2Attributes(obj),
+			"documentUrl": _documentUrl(document) if document is not None else None,
+			"documentTitle": _safeGet(document, "name") if document is not None else None,
+			"documentLocation": list(documentLocation) if documentLocation else None,
+			"domNodeId": domNodeId,
+			"domNodeIdFromParent": fromParent,
+		}
 
 	def _inspectObject(self, params: dict[str, Any]) -> dict[str, Any]:
 		if params.get("id") is not None:
@@ -1059,6 +1253,7 @@ class NvdaActions:
 			perform,
 			params,
 			targetApp=wxCallOnMain(_appNameOf, obj),
+			recordTarget=obj,
 		)
 		result["method"] = used.get("method")
 		result["object"] = wxCallOnMain(describeObject, obj)
@@ -1191,16 +1386,26 @@ class NvdaActions:
 		params: dict[str, Any],
 		targetApp: str | None = None,
 		checkApp: bool = True,
+		recordTarget: NVDAObject | None = None,
 	) -> dict[str, Any]:
 		"""Check permissions, log the action, run it, then wait for NVDA to finish speaking.
 
 		:param targetApp: The application the action affects; the foreground application when None.
 		:param checkApp: False for actions on NVDA itself, which the allowed applications setting does not cover.
+		:param recordTarget: The control the action works on, whose document is recorded when params has record.
 		"""
 		settleSeconds = float(params.get("settleMs", 400)) / 1000
 		timeoutSeconds = float(params.get("timeoutMs", 3000)) / 1000
 		clientName = params.get("clientName") if isinstance(params.get("clientName"), str) else None
-		deadline = controlApproval.startDeadline(time.monotonic(), timeoutSeconds)
+		listenSeconds = timeoutSeconds
+		recording = None
+		if params.get("record") is not None:
+			if not isinstance(params["record"], dict) or self.recorder is None:
+				raise BridgeError("badParams", 'record must be an object, such as {} or {"within": 5}.')
+			# Chosen before anything happens, so a bad id fails before NVDA asks for permission.
+			recording = wxCallOnMain(self.recorder.resolve, params["record"], recordTarget)
+			listenSeconds += self.recorder.extraSeconds
+		deadline = controlApproval.startDeadline(time.monotonic(), listenSeconds)
 		with self._controlTurn(deadline):
 			self._ensureControlAllowed(clientName, deadline)
 			foreground = wxCallOnMain(api.getForegroundObject)
@@ -1215,9 +1420,21 @@ class NvdaActions:
 					self._actionLog.record(action, window, app=targetApp, **client, **details)
 				except OSError:
 					log.error("NVDA MCP could not write its action log", exc_info=True)
-			startId = self._speechLog.lastId
-			perform()
 			result: dict[str, Any] = {}
+			if recording is not None:
+				try:
+					wxCallOnMain(self.recorder.begin, recording)
+				except Exception:  # noqa: BLE001 - recording is a diagnostic; the action still runs
+					log.debugWarning("Could not start recording", exc_info=True)
+					result["recording"] = {"error": "The tree could not be read before the action."}
+					recording = None
+			startId = self._speechLog.lastId
+			try:
+				perform()
+			except BaseException:
+				if recording is not None:
+					self.recorder.cancel(recording)
+				raise
 			untilSpeech = params.get("untilSpeech")
 			if untilSpeech:
 				# Wait for the expected announcement, which may come after other speech or a pause,
@@ -1232,6 +1449,13 @@ class NvdaActions:
 			spoken = self._speechLog.waitForQuiet(startId, settleSeconds, timeoutSeconds)
 			result["speech"] = [entry.toDict() for entry in spoken]
 			result["focus"] = wxCallOnMain(self._getFocus, {})
+			if recording is not None:
+				try:
+					result["recording"] = wxCallOnMain(self.recorder.finish, recording)
+				except Exception:  # noqa: BLE001
+					log.debugWarning("Could not finish recording", exc_info=True)
+					self.recorder.cancel(recording)
+					result["recording"] = {"error": "The tree could not be read after the action."}
 			return result
 
 	@staticmethod

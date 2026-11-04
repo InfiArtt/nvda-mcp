@@ -28,6 +28,19 @@ install them together.
   the text of live regions and alerts, but NVDA does not act on them.
 - `nvda_set_value` (experimental) gives an edit field new text through UI Automation or IAccessible,
   without the keyboard or focus, and reports whether the field took it.
+- Recording what an action changed, for add-on developers. Action tools such as `nvda_press_keys`,
+  `nvda_activate_object` and `nvda_set_value` take `record` (or `record_within`, an id): the result then also
+  says how the accessibility tree around the action changed (controls added, removed, renamed or moved,
+  values and states, lists that scrolled) and which events NVDA handled. `nvda_trace_events` takes `tree`
+  (or `tree_within`) to do the same for something the user does, from start to stop. The comparison never
+  reports a control as removed when it was simply not read, and reads the part around the focus first.
+- `nvda_inspect_html` and `nvda_find_html`, for developers of add-ons for web apps: the HTML element behind a
+  control in Chrome, Brave or Edge, read through the browser's remote debugging, with the data attributes,
+  HTML, styles and event listeners that NVDA cannot see. The control is matched with its element exactly,
+  through the DOM node id Chromium gives it. Off until you check the new setting
+  **Let MCP clients read the HTML of web pages through the browser's remote debugging**; NVDA says when
+  it connects, and the browser asks before every new connection. Only the page you work with is read:
+  no scripts are run and your other tabs are never listed.
 
 ### Changed
 
@@ -35,7 +48,9 @@ install them together.
   so a container's id still works after searching inside it.
 - When `nvda_find_objects` searches several parts of a window, such as a web page and then the browser
   around it, they share one 3-second time limit instead of 3 seconds each.
-- The bridge protocol version is now 5. Update the add-on and the server together.
+- `nvda_trace_events` no longer records which character a typed-character event carried, so passwords stay
+  out of traces (NVDA only says "star" for them). What NVDA speaks as you type in other fields is still recorded.
+- The bridge protocol version is now 6. Update the add-on and the server together.
 
 ### Fixed
 
@@ -45,10 +60,13 @@ install them together.
   MCP client stops waiting. Before, answering Yes much later still ran the old action, and every other
   action waited behind the open question. An action that cannot start in time fails with `controlBusy`.
 - Escape answers No in that question; before, it did nothing.
+- Using the id of a web page's control that has disappeared now fails with `staleObject`. Before, NVDA still
+  answered for it as an unknown object, so the action failed later with a less helpful error.
 - `nvda_get_object_tree` no longer drops a control and everything in it when it is the last one shown
   and its own children were cut short; on WhatsApp Web most of the page went missing this way.
 - `nvda_activate_window` now brings NVDA along when Windows switches virtual desktops to reach the window.
   Windows sends no event then, so NVDA kept reading the old window and the result showed the old focus.
+  NVDA then says the window title once, as after Alt+Tab; at first it said it twice in browsers.
 
 ## [1.0.0] - 2026-11-02
 

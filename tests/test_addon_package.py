@@ -67,3 +67,20 @@ def test_help_pages_link_to_repository_files_on_the_web():
     assert page.startswith("<!DOCTYPE html>") and '<html lang="en">' in page
     assert 'href="docs/' not in page and 'href="CHANGELOG.md' not in page
     assert 'href="https://example.org/repo/blob/main/' in page
+
+
+def test_nothing_in_the_add_on_hides_the_translation_function():
+    # NVDA installs _ for translations: a loop variable or assignment named _ breaks every
+    # translated message later in the same function ("'int' object is not callable").
+    for path in ADDON_DIR.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            targets = []
+            if isinstance(node, (ast.For, ast.comprehension)):
+                targets = [node.target]
+            elif isinstance(node, ast.Assign):
+                targets = node.targets
+            elif isinstance(node, (ast.With, ast.AsyncWith)):
+                targets = [item.optional_vars for item in node.items if item.optional_vars is not None]
+            for target in targets:
+                names = [name.id for name in ast.walk(target) if isinstance(name, ast.Name)]
+                assert "_" not in names, f"{path}:{getattr(node, 'lineno', '?')} assigns to _"

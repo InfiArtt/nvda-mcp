@@ -2,6 +2,7 @@
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -54,17 +55,32 @@ def save_baseline(path: Path, recording: Recording) -> None:
     path.write_text(json.dumps(recording.to_dict(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def text_normaliser(ignore_pattern: str | None, *, collapse_whitespace: bool = False) -> Callable[[str], str]:
+    """A function that prepares text for comparing, shared by scenarios and interaction recordings.
+
+    :param ignore_pattern: A regular expression for text that changes from run to run, such as times;
+        each match is replaced by "…".
+    :param collapse_whitespace: Whether to turn runs of whitespace, including no-break spaces, into one space
+        and strip the ends first, so that a time written with a narrow no-break space, as WhatsApp Web does,
+        matches a pattern written with a plain space.
+    """
+    ignore = re.compile(ignore_pattern) if ignore_pattern else None
+
+    def normal(text: str) -> str:
+        if collapse_whitespace:
+            text = " ".join(text.split())
+        return ignore.sub("…", text) if ignore else text
+
+    return normal
+
+
 def compare(baseline: Recording, recording: Recording, ignore_pattern: str | None = None) -> list[str]:
     """Differences between a baseline and a new recording, one line each; empty when they match.
 
     :param ignore_pattern: A regular expression for text that changes from run to run, such as times;
         matches are ignored in both recordings.
     """
-    ignore = re.compile(ignore_pattern) if ignore_pattern else None
-
-    def normal(text: str) -> str:
-        return ignore.sub("…", text) if ignore else text
-
+    normal = text_normaliser(ignore_pattern)
     differences = []
     if [step.action for step in baseline.steps] != [step.action for step in recording.steps]:
         message = (
