@@ -52,7 +52,7 @@ from . import controlApproval, windows
 from .actionLog import ActionLog
 from .bridge import BridgeError, Handler
 from .configSpec import CONFIG_SECTION, parseAllowedApps
-from .focusCatchUp import catchUpEvents
+from .focusCatchUp import catchUpEvents, earlyWindowEvent
 from .objectRegistry import ObjectRegistry
 from .speechLog import SpeechLog
 from .treeWalk import searchTrees, walkTree
@@ -640,16 +640,17 @@ def _isNvdaForeground(hwnd: int) -> bool:
 	return _safeGet(api.getForegroundObject(), "windowHandle") == hwnd
 
 
-def _reportForeground(hwnd: int) -> None:
-	"""Tell NVDA about a window it missed coming to the front, the way an Alt+Tab would.
+def _hasQueuedFocusIn(hwnd: int, besides: NVDAObject | None = None) -> bool:
+	"""Whether NVDA has a focus event for something in the window, other than the object besides."""
+	last = eventHandler.lastQueuedFocusObject
+	if last is None or (besides is not None and last is besides):
+		return False
+	lastWindow = _safeGet(last, "windowHandle")
+	return bool(lastWindow) and winUser.isDescendantWindow(hwnd, lastWindow)
 
-	Windows sends no foreground event when bringing a window forward also switches virtual desktops.
-	See :func:`focusCatchUp.catchUpEvents` for why the window gets a focus event of its own.
-	"""
-	lastFocusWindow = _safeGet(eventHandler.lastQueuedFocusObject, "windowHandle")
-	if lastFocusWindow and winUser.isDescendantWindow(hwnd, lastFocusWindow):
-		# NVDA caught up on its own since the add-on last looked.
-		return
+
+def _focusIn(hwnd: int) -> NVDAObject | None:
+	"""The control focused in a window, or its client window if the application does not say."""
 	threadId = winUser.getWindowThreadProcessID(hwnd)[1]
 	focusWindow = winUser.getGUIThreadInfo(threadId).hwndFocus or hwnd
 	window = getNVDAObjectFromEvent(focusWindow, winUser.OBJID_CLIENT, winUser.CHILDID_SELF)
@@ -659,8 +660,53 @@ def _reportForeground(hwnd: int) -> None:
 			focus = window.objectWithFocus()
 		except Exception:  # noqa: BLE001 - applications raise COMError and others
 			log.debugWarning("Could not get the focused control", exc_info=True)
-	focus = focus or window
-	for obj in catchUpEvents(_topContainer(focus), focus):
+	return focus or window
+
+
+def _activateAndAnnounce(hwnd: int) -> tuple[bool, NVDAObject | None]:
+	"""Bring a window to the front and, where NVDA would say its title twice, tell NVDA about the window at once.
+
+	Returns whether the window is now in front, and the window NVDA was sent a focus event for, if any.
+	Both happen in one call on the main thread, so the focus event is queued before NVDA handles
+	the application's own events. See :func:`focusCatchUp.earlyWindowEvent` for when this is needed.
+	"""
+	if not windows.activateWindow(hwnd):
+		return False, None
+	if _hasQueuedFocusIn(hwnd):
+		# It was in front already.
+		return True, None
+	try:
+		focus = _focusIn(hwnd)
+		document = _safeGet(focus, "treeInterceptor") if focus is not None else None
+		inFocusMode = isinstance(document, BrowseModeTreeInterceptor) and bool(document.passThrough)
+		window = earlyWindowEvent(_topContainer(focus), focus, inFocusMode)
+	except Exception:  # noqa: BLE001 - the window is in front; NVDA and the usual catch-up follow it
+		log.debugWarning("Could not tell NVDA about the window early", exc_info=True)
+		return True, None
+	if window is not None:
+		eventHandler.queueEvent("gainFocus", window)
+	return True, window
+
+
+def _hasCaughtUp(hwnd: int, announced: NVDAObject | None) -> bool:
+	"""Whether NVDA has followed the window to the front, beyond the focus event the add-on sent for it."""
+	if announced is None:
+		return _isNvdaForeground(hwnd)
+	return _hasQueuedFocusIn(hwnd, besides=announced)
+
+
+def _reportForeground(hwnd: int, announced: NVDAObject | None = None) -> None:
+	"""Tell NVDA about a window it missed coming to the front, the way an Alt+Tab would.
+
+	Windows sends no foreground event when bringing a window forward also switches virtual desktops.
+	See :func:`focusCatchUp.catchUpEvents` for why the window gets a focus event of its own.
+	:param announced: The window, if :func:`_activateAndAnnounce` already sent a focus event for it.
+	"""
+	if _hasQueuedFocusIn(hwnd, besides=announced):
+		# NVDA caught up on its own since the add-on last looked.
+		return
+	focus = _focusIn(hwnd)
+	for obj in catchUpEvents(_topContainer(focus), focus, announced):
 		eventHandler.queueEvent("gainFocus", obj)
 
 
@@ -996,16 +1042,17 @@ class NvdaActions:
 		targetApp = self._appNameOfProcess(target.processId)
 
 		def perform() -> None:
-			if not wxCallOnMain(windows.activateWindow, target.handle):
+			activated, announced = wxCallOnMain(_activateAndAnnounce, target.handle)
+			if not activated:
 				raise BridgeError(
 					"activationFailed",
 					f"Windows did not let NVDA bring {target.title!r} to the front. "
 					"It may belong to a program running as administrator.",
 				)
 			deadline = time.monotonic() + FOREGROUND_CATCH_UP_SECONDS
-			while not wxCallOnMain(_isNvdaForeground, target.handle):
+			while not wxCallOnMain(_hasCaughtUp, target.handle, announced):
 				if time.monotonic() >= deadline:
-					wxCallOnMain(_reportForeground, target.handle)
+					wxCallOnMain(_reportForeground, target.handle, announced)
 					break
 				time.sleep(0.05)
 
