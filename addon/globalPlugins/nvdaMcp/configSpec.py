@@ -15,6 +15,8 @@ CONFIG_SPEC: dict[str, str] = {
 	# Empty means every application may be controlled.
 	"allowedApps": "string(default='')",
 	"logActions": "boolean(default=True)",
+	# Lets MCP clients read web pages through the browser's remote debugging (Chrome DevTools Protocol).
+	"allowBrowserInspection": "boolean(default=False)",
 }
 
 

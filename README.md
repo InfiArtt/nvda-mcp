@@ -107,6 +107,8 @@ In NVDA's Settings, **NVDA MCP** category:
 - **Only let MCP clients control these applications** (empty by default, meaning all).
   For example `notepad, winword`. Anything else is refused.
 - **Keep a log of every action MCP clients take** (on by default), in `%APPDATA%\nvda\nvdaMcp\actions.log`.
+- **Let MCP clients read the HTML of web pages through the browser's remote debugging** (off by default),
+  for developers of add-ons for web apps. The browser also asks you before every new connection.
 - **Number of spoken messages to remember** (500 by default).
 
 Commands in Input Gestures, NVDA MCP category (no keys assigned by default):
@@ -131,6 +133,11 @@ and most assistants send it to their provider's servers. That can include the te
 what NVDA says, the contents of documents and chat windows, and anything NVDA reads aloud while you type.
 It can also read windows you are not looking at, such as a chat window in the background
 or on another virtual desktop.
+
+If you let it read web pages' HTML (off by default), note that turning on remote debugging in your browser
+lets a program you allow reach every tab and signed-in site in that browser, and lets other programs on
+your computer ask to connect too. NVDA MCP only reads the page you are working with, never runs scripts
+or reads cookies, and NVDA tells you before it connects. Turn remote debugging off when you are done.
 
 - Before you work with something private, such as banking, passwords or personal messages,
   close your assistant or turn off *Let MCP clients connect* in NVDA's settings.
@@ -172,7 +179,9 @@ For developers of add-ons and accessible applications:
 |---|---|
 | `nvda_preview_speech` | What NVDA would announce when a control gets focus, without moving focus; scan a whole window and flag unlabeled or silent controls |
 | `nvda_inspect_object` | A control's IAccessible2 attributes or UIA properties, its containers and children, loaded and reported rows of virtual lists, and the most stable way for an add-on to recognize it, with example code |
-| `nvda_trace_events` | Record the events NVDA handles (focus, name and value changes, live regions, UIA notifications) and what it said for each one; can also ask for events from a window in the background |
+| `nvda_trace_events` | Record the events NVDA handles (focus, name and value changes, live regions, UIA notifications) and what it said for each one; can also ask for events from a window in the background, and say what changed in the accessibility tree meanwhile |
+| `nvda_inspect_html` | The HTML element behind a control in Chrome, Brave or Edge, through the browser's remote debugging: data attributes, the HTML around it, styles and event listeners, which NVDA cannot see |
+| `nvda_find_html` | Find elements in the web page by CSS selector, through the browser's remote debugging |
 | `nvda_get_log` | NVDA's log, filtered by level and text; IO entries (keys typed) only when asked |
 | `nvda_get_output_history` | Beeps, sounds, braille output and speech being cut off, optionally merged with speech |
 | `nvda_get_dev_info` | Developer info for a control, like NVDA+F1 |
@@ -181,6 +190,10 @@ For developers of add-ons and accessible applications:
 | `nvda_reload_plugins` | Reload add-ons and app modules from disk, like NVDA+control+F3 |
 | `nvda_get_settings` | Read NVDA's settings as they apply now; values that look like secrets are hidden |
 | `nvda_run_scenario` | Run keys and typing, record what NVDA said after each step, and compare with a baseline file |
+
+Action tools such as `nvda_press_keys` and `nvda_activate_object` take `record`: the result then also says
+what the action changed in the accessibility tree (controls added, removed, renamed or moved, values
+and states) and which events NVDA handled.
 
 Every action reports what NVDA said afterwards and where focus went, and can wait for an expected announcement,
 such as "sent" or a dialog's title.

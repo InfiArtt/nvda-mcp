@@ -12,10 +12,97 @@ from nvda_mcp.bridge_client import BridgeClient
 pytestmark = pytest.mark.anyio
 
 
+def _row(key, name, index):
+    return {"key": f"ia2:100:-{key}", "role": "row", "name": name, "index": index}
+
+
+# A WhatsApp-like page before and after sending "hello" to Ana, as the add-on's snapshots describe it.
+BEFORE = {
+    "nodeCount": 7,
+    "truncated": None,
+    "tree": {
+        "key": "ia2:100:-1",
+        "role": "document",
+        "name": "WhatsApp",
+        "index": 0,
+        "children": [
+            {
+                "key": "ia2:100:-2",
+                "role": "table",
+                "name": "Chat list",
+                "index": 0,
+                "children": [_row(10, "Budi, 5:10 AM, see you", 0), _row(11, "Ana, 5:01 AM, hi", 1)],
+            },
+            {
+                "key": "ia2:100:-3",
+                "role": "list",
+                "name": "Messages",
+                "index": 1,
+                "children": [_row(20, "hi, 5:01 AM", 0)],
+            },
+            {"key": "ia2:100:-4", "role": "edit", "name": "Type a message", "value": "hello", "index": 2},
+        ],
+    },
+}
+AFTER = {
+    "nodeCount": 8,
+    "truncated": None,
+    "alive": True,
+    "tree": {
+        **BEFORE["tree"],
+        "children": [
+            {
+                **BEFORE["tree"]["children"][0],
+                "children": [_row(11, "Ana, 5:47 AM, hello", 0), _row(10, "Budi, 5:10 AM, see you", 1)],
+            },
+            {
+                **BEFORE["tree"]["children"][1],
+                "children": [_row(20, "hi, 5:01 AM", 0), _row(21, "hello, 5:47 AM, Pending", 1)],
+            },
+            {"key": "ia2:100:-4", "role": "edit", "name": "Type a message", "index": 2},
+        ],
+    },
+}
+RECORDING = {
+    "root": {"role": "document", "name": "WhatsApp"},
+    "rootNote": "the web document",
+    "seconds": 1.2,
+    "before": BEFORE,
+    "after": AFTER,
+    "events": [
+        {"id": 31, "event": "valueChange", "name": "Type a message", "role": "edit", "app": "brave"},
+        {"id": 32, "event": "caret", "name": "Type a message", "role": "edit", "app": "brave"},
+        {
+            "id": 33,
+            "event": "liveRegionChange",
+            "role": "section",
+            "app": "brave",
+            "spokenNearby": "Message sent",
+        },
+    ],
+}
+WEB_ELEMENT = {
+    "name": "Send",
+    "role": "button",
+    "appName": "brave",
+    "browser": "Brave",
+    "processId": 4242,
+    "appPath": "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
+    "location": [100, 200, 40, 40],
+    "attributes": {"tag": "button", "class": "x1n2onr6"},
+    "documentUrl": "https://web.whatsapp.com/",
+    "documentTitle": "WhatsApp",
+    "documentLocation": [0, 80, 1280, 900],
+    "domNodeId": 3921,
+    "domNodeIdFromParent": False,
+}
+
+
 class FakeWindow:
     """A window with a fixed tab order that speaks like NVDA when focus moves."""
 
-    def __init__(self, controls, allow_control=True, accepts_values=True):
+    def __init__(self, controls, allow_control=True, accepts_values=True, allow_browser=True):
+        self.allow_browser = allow_browser
         self.controls = controls
         self.index = 0
         self.allow_control = allow_control
@@ -38,6 +125,7 @@ class FakeWindow:
             raise BridgeError("controlDisabled", "Pressing keys is turned off.")
         start = self.speech.lastId
         self.held = params.get("hold")
+        self.calls["lastPressKeys"] = params
         self.client_name = params.get("clientName")
         for key in params["keys"]:
             step = -1 if key == "shift+tab" else 1
@@ -53,7 +141,19 @@ class FakeWindow:
         if params.get("untilSpeech"):
             needle = params["untilSpeech"].casefold()
             result["expectedSpeechHeard"] = any(needle in entry.text.casefold() for entry in spoken)
+        if "record" in params:
+            result["recording"] = RECORDING
         return result
+
+    def web_element_info(self, params):
+        self.calls.setdefault("webElementInfo", []).append(
+            {k: v for k, v in params.items() if k != "clientName"}
+        )
+        if not self.allow_browser:
+            raise BridgeError(
+                "browserInspectionDisabled", "Reading web pages through remote debugging is off."
+            )
+        return WEB_ELEMENT
 
     def speak_after_action(self, text, params):
         start = self.speech.lastId
@@ -80,6 +180,13 @@ class FakeWindow:
         self.calls["traceEvents"] = params
         if params["action"] == "start":
             result = {"afterId": 4, "stopsAfterSeconds": 600}
+            if "tree" in params:
+                result["tree"] = {
+                    "root": {"role": "document", "name": "WhatsApp"},
+                    "rootNote": "the web document",
+                    "nodeCount": 7,
+                    "truncated": None,
+                }
             if "backgroundWindow" in params:
                 result["background"] = {
                     "events": ["nameChange", "liveRegionChange"],
@@ -87,7 +194,13 @@ class FakeWindow:
                     "windowClasses": ["Chrome_RenderWidgetHostHWND", "Chrome_WidgetWin_1"],
                 }
             return result
+        tree = (
+            {"tree": {k: v for k, v in RECORDING.items() if k != "events"}}
+            if params["action"] == "stop"
+            else {}
+        )
         return {
+            **(tree if self.calls.get("traceTree") else {}),
             "tracing": params["action"] != "stop",
             "lastId": 7,
             "entries": [
@@ -224,6 +337,7 @@ class FakeWindow:
                 ],
             },
             "traceEvents": self.trace_events,
+            "webElementInfo": self.web_element_info,
             "getFocus": self.focus,
             "getSpeech": lambda params: {
                 "lastId": self.speech.lastId,
@@ -541,3 +655,82 @@ async def test_scenario_saves_then_compares_with_baseline(connect, tmp_path):
     assert "**Differs from the baseline**" in second
     assert "- Step 1 (press tab): NVDA said 'button', baseline 'Sign in button'" in second
     assert bad.is_error
+
+
+async def test_actions_can_record_what_they_changed(connect):
+    window = connect(FakeWindow([("OK", "button")]))
+    async with Client(server.mcp) as client:
+        pressed = text_of(await client.call_tool("nvda_press_keys", {"keys": ["enter"], "record": True}))
+        await client.call_tool("nvda_press_keys", {"keys": ["enter"], "record_within": 3})
+        within = window.calls.get("lastPressKeys")
+        plain = text_of(await client.call_tool("nvda_press_keys", {"keys": ["enter"]}))
+    assert within["record"] == {"within": 3}
+    assert pressed.startswith("Pressed: enter\nNVDA said: OK button\n")
+    assert '## What changed in document "WhatsApp" (the web document)' in pressed
+    # The tree diff itself is tested in test_interaction; here it only has to show the changes.
+    assert "Ana" in pressed and "hello, 5:47 AM, Pending" in pressed
+    assert "## Events NVDA handled: 3, 2 shown" in pressed
+    assert "NVDA said around then, probably because of this: Message sent" in pressed
+    assert "Not shown, NVDA said nothing for them: 1 caret." in pressed
+    assert "What changed" not in plain
+
+
+async def test_trace_can_compare_the_tree_from_start_to_stop(connect):
+    window = connect(FakeWindow([("OK", "button")]))
+    window.calls["traceTree"] = True
+    async with Client(server.mcp) as client:
+        started = text_of(await client.call_tool("nvda_trace_events", {"action": "start", "tree": True}))
+        start_params = window.calls["traceEvents"]
+        stopped = text_of(await client.call_tool("nvda_trace_events", {"action": "stop", "after_id": 4}))
+        bad = await client.call_tool("nvda_trace_events", {"action": "stop", "ignore_pattern": "("})
+    assert start_params["tree"] == {}
+    assert started.endswith(
+        'Read 7 objects of document "WhatsApp" (the web document); stop says what changed in them.'
+    )
+    assert stopped.startswith("3 events, lastId 7, tracing is off.")
+    assert '## What changed in document "WhatsApp" (the web document)' in stopped
+    assert "hello, 5:47 AM, Pending" in stopped
+    assert bad.is_error
+
+
+async def test_html_tools_need_the_setting_and_announce_a_new_connection(connect, monkeypatch):
+    window = connect(FakeWindow([("OK", "button")]))
+    calls = []
+
+    async def fake_inspect(info, **options):
+        calls.append((info, options))
+        await options["announce"]("connecting")
+        return {"page": {"url": info["documentUrl"]}}
+
+    monkeypatch.setattr(server.dom_inspection, "inspect_element", fake_inspect)
+    monkeypatch.setattr(
+        server.dom_inspection, "element_markdown", lambda result: f"page {result['page']['url']}"
+    )
+    async with Client(server.mcp) as client:
+        shown = text_of(await client.call_tool("nvda_inspect_html", {"id": 5, "parts": ["html", "styles"]}))
+        window.allow_browser = False
+        refused = await client.call_tool("nvda_inspect_html", {})
+    assert shown == "page https://web.whatsapp.com/"
+    info, options = calls[0]
+    assert info["domNodeId"] == 3921
+    assert options["parts"] == ["html", "styles"]
+    assert window.calls["webElementInfo"][:2] == [{"id": 5}, {"id": 5, "announce": True}]
+    assert refused.is_error
+    assert "browserInspectionDisabled" in text_of(refused)
+
+
+async def test_find_html_searches_the_page_nvda_is_in(connect, monkeypatch):
+    window = connect(FakeWindow([("OK", "button")]))
+    seen = []
+
+    async def fake_find(info, selector, **options):
+        seen.append(selector)
+        return {"elements": []}
+
+    monkeypatch.setattr(server.dom_inspection, "find_elements", fake_find)
+    monkeypatch.setattr(server.dom_inspection, "found_markdown", lambda result: "no elements")
+    async with Client(server.mcp) as client:
+        result = text_of(await client.call_tool("nvda_find_html", {"selector": "[data-icon]"}))
+    assert result == "no elements"
+    assert seen == ["[data-icon]"]
+    assert window.calls["webElementInfo"] == [{"target": "focus", "document": True}]

@@ -37,6 +37,7 @@ from speech.extensions import speechCanceled
 
 from . import nvdaLog, windows
 from .bridge import BridgeError, Handler
+from .interactionRecorder import InteractionRecorder, Recording, rootLabel
 from .nvdaActions import (
 	_LAYOUT_ROLES,
 	CHROMIUM_DOCUMENT_WINDOW_CLASS,
@@ -183,6 +184,8 @@ class EventTracer:
 		self._eventNames: set[str] | None = None
 		self._appName: str | None = None
 		self._stopAt = 0.0
+		# Actions recorded with their effects, which collect events while tracing is off.
+		self._recordings = 0
 		self._original = None
 		self._wrapper = None
 		# (event name, process id, window class) entries this tracer added to NVDA's accepted events.
@@ -210,6 +213,22 @@ class EventTracer:
 	def stop(self) -> None:
 		self.isActive = False
 		self._releaseRequests()
+
+	@property
+	def hasFilter(self) -> bool:
+		return self._eventNames is not None or self._appName is not None
+
+	def beginRecording(self) -> int:
+		"""Collect events for a recorded action, even while tracing is off. Must be called on the main thread.
+
+		:return: The id to read events after.
+		"""
+		self._recordings += 1
+		self._install()
+		return self.log.lastId
+
+	def endRecording(self) -> None:
+		self._recordings = max(self._recordings - 1, 0)
 
 	def _requestBackgroundEvents(self, handle: Any, eventNames: list[str]) -> dict[str, Any]:
 		"""Let events from a background window through, as an add-on can with eventHandler.requestEvents.
@@ -280,7 +299,7 @@ class EventTracer:
 		original = eventHandler.executeEvent
 
 		def executeEvent(eventName: str, obj: NVDAObject, **kwargs: Any) -> Any:
-			if not self.isActive:
+			if not (self.isActive or self._recordings):
 				return original(eventName, obj, **kwargs)
 			return self._traced(original, eventName, obj, kwargs)
 
@@ -289,15 +308,18 @@ class EventTracer:
 		eventHandler.executeEvent = executeEvent
 
 	def _traced(self, original: Any, eventName: str, obj: NVDAObject, kwargs: dict[str, Any]) -> Any:
-		if time.monotonic() > self._stopAt:
+		if self.isActive and time.monotonic() > self._stopAt:
 			self.stop()
+		if not (self.isActive or self._recordings):
 			return original(eventName, obj, **kwargs)
 		# NVDA would not have had these events, so it does not act on them: a background chat stays silent.
 		isBackground = self._isRequestedBackgroundEvent(eventName, obj)
-		if self._eventNames is not None and eventName not in self._eventNames:
+		# A recording alone takes every event; a trace's filter applies while it runs.
+		isFiltered = self.isActive
+		if isFiltered and self._eventNames is not None and eventName not in self._eventNames:
 			return None if isBackground else original(eventName, obj, **kwargs)
 		appName = _appNameOf(obj)
-		if self._appName is not None and (appName or "").casefold() != self._appName:
+		if isFiltered and self._appName is not None and (appName or "").casefold() != self._appName:
 			return None if isBackground else original(eventName, obj, **kwargs)
 		if isBackground:
 			self._record(
@@ -335,6 +357,9 @@ class EventTracer:
 			"windowClassName": _safeGet(obj, "windowClassName"),
 			**fields,
 		}
+		if eventName == "typedCharacter":
+			# What the user typed, possibly in a password field, stays out of traces.
+			kwargs = {key: value for key, value in kwargs.items() if key != "ch"}
 		if kwargs:
 			entry["details"] = {key: _short(value) for key, value in kwargs.items()}
 		self.log.add("event", **{key: value for key, value in entry.items() if value not in (None, "")})
@@ -383,6 +408,11 @@ class DevTools:
 		self._actions = actions
 		self.tracer = EventTracer(speechLog)
 		self.output = OutputRecorder()
+		self.recorder = InteractionRecorder(actions, self.tracer, self._readEvents)
+		# Control actions record their effects through this; set here to avoid an import cycle.
+		actions.recorder = self.recorder
+		# The tree snapshot taken when a trace started with tree on.
+		self._traceRecording: Recording | None = None
 
 	def register(self) -> None:
 		self.output.register()
@@ -390,6 +420,7 @@ class DevTools:
 	def unregister(self) -> None:
 		self.output.unregister()
 		self.tracer.uninstall()
+		self._traceRecording = None
 
 	def handlers(self) -> dict[str, Handler]:
 		onMain = self._actions.onMain
@@ -434,6 +465,9 @@ class DevTools:
 			if not isinstance(eventNames, list) or not all(isinstance(name, str) for name in eventNames):
 				raise BridgeError("badParams", 'events must be a list of event names, such as ["gainFocus"].')
 			self._actions.ensureUnlocked()
+			treeParams = params.get("tree")
+			if treeParams is not None and not isinstance(treeParams, dict):
+				raise BridgeError("badParams", 'tree must be an object, such as {} or {"within": 5}.')
 			startId = self.tracer.log.lastId
 			background = wxCallOnMain(
 				self.tracer.start, eventNames, params.get("app") or None, params.get("backgroundWindow")
@@ -441,6 +475,21 @@ class DevTools:
 			result = {"tracing": True, "afterId": startId, "stopsAfterSeconds": MAX_TRACE_SECONDS}
 			if background is not None:
 				result["background"] = background
+			self._traceRecording = None
+			if treeParams is not None:
+				if params.get("backgroundWindow") is not None and treeParams.get("within") is None:
+					treeParams = {**treeParams, "window": params["backgroundWindow"]}
+				recording = wxCallOnMain(self.recorder.resolve, treeParams)
+				self._traceRecording = wxCallOnMain(self.recorder.begin, recording, False)
+				before = self._traceRecording.before or {}
+				result["tree"] = {
+					"root": wxCallOnMain(rootLabel, recording.root),
+					"rootNote": recording.rootNote,
+					"nodeCount": before.get("nodeCount", 0),
+					"truncated": before.get("truncated"),
+				}
+				if recording.extra.get("webPageUnavailable"):
+					result["tree"]["webPageUnavailable"] = True
 			return result
 		if action not in ("read", "stop"):
 			raise BridgeError("badParams", "action must be start, read or stop.")
@@ -449,9 +498,16 @@ class DevTools:
 			time.sleep(waitSeconds)
 		if action == "stop":
 			wxCallOnMain(self.tracer.stop)
-		entries = self.tracer.log.since(
-			int(params.get("afterId", 0)), min(int(params.get("limit", 100)), 500)
-		)
+		entries = self._readEvents(int(params.get("afterId", 0)), min(int(params.get("limit", 100)), 500))
+		result = {"tracing": self.tracer.isActive, "lastId": self.tracer.log.lastId, "entries": entries}
+		if action == "stop" and self._traceRecording is not None:
+			recording, self._traceRecording = self._traceRecording, None
+			result["tree"] = wxCallOnMain(self.recorder.finish, recording)
+		return result
+
+	def _readEvents(self, afterId: int, limit: int | None = None) -> list[dict[str, Any]]:
+		"""Traced events newer than afterId, with what NVDA said for each and around it."""
+		entries = self.tracer.log.since(afterId, limit)
 		# Events from a background window were not handled by NVDA, so they have no speech to look at.
 		speechIds = [entry["speechBeforeId"] for entry in entries if "speechBeforeId" in entry]
 		if speechIds:
@@ -463,7 +519,7 @@ class DevTools:
 			for entry in entries:
 				entry.pop("speechBeforeId", None)
 				entry.pop("speechAfterId", None)
-		return {"tracing": self.tracer.isActive, "lastId": self.tracer.log.lastId, "entries": entries}
+		return entries
 
 	def _getOutput(self, params: dict[str, Any]) -> dict[str, Any]:
 		kinds = params.get("kinds") or None
