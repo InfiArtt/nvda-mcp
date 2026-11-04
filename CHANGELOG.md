@@ -8,6 +8,8 @@ install them together.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-05
+
 ### Added
 
 - `nvda_find_objects` takes `within`, an id from the previous search, to search only inside that control.
@@ -134,4 +136,5 @@ First release, on the NV Access Add-on Store and PyPI.
 - [docs/using.md](docs/using.md), [CONTRIBUTING.md](CONTRIBUTING.md) and
   [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
+[1.1.0]: https://github.com/InfiArtt/nvda-mcp/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/InfiArtt/nvda-mcp/releases/tag/v1.0.0
