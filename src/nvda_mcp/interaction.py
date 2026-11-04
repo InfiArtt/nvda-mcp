@@ -223,6 +223,7 @@ class _Node:
         # Worked out when first needed, once the whole snapshot is built.
         self._content: tuple[str, str] | None = None
         self._names: frozenset[str] | None = None
+        self._label_cuts: frozenset[str] | None = None
         self._signature: tuple[str, str, str] | None = None
 
     def content(self) -> tuple[str, str]:
@@ -245,10 +246,39 @@ class _Node:
             self._names = frozenset(node.norm_name for node in _descendants(self) if node.name)
         return self._names
 
+    def label_cuts(self) -> frozenset[str]:
+        """The cuts met inside it, in document order, before its CONTENT_LABEL_NAMES-th named object.
+
+        Children that were not read are counted where they would be: at the first hole in the positions of
+        the children read, or after them. So the unread middle of a long list does not count when its first
+        names were read before it, nor a cut after them.
+        """
+        if self._label_cuts is None:
+            cuts: set[str] = set()
+            named = 0
+            stack = _children_and_cut(self)[::-1]
+            while stack:
+                item = stack.pop()
+                if isinstance(item, str):
+                    cuts.add(item)
+                    continue
+                if item.name:
+                    named += 1
+                    if named == CONTENT_LABEL_NAMES:
+                        break
+                stack.extend(_children_and_cut(item)[::-1])
+            self._label_cuts = frozenset(cuts)
+        return self._label_cuts
+
     @property
     def partial(self) -> bool:
-        """Whether it is recognized only by what is inside it, and that was not all read."""
-        return not self.name and self.cut_inside
+        """Whether it is recognized only by what is inside it, and the first names there may not all be read."""
+        return not self.name and any(cut != "depth" for cut in self.label_cuts())
+
+    @property
+    def depth_partial(self) -> bool:
+        """Whether the depth limit hides some of the first names inside it; the same both times, it is harmless."""
+        return not self.name and "depth" in self.label_cuts()
 
     @property
     def label_norm(self) -> str:
@@ -259,10 +289,11 @@ class _Node:
         if self._signature is None:
             if self.norm_name:
                 self._signature = (self.role, "name", self.norm_name)
+            elif self.content()[0] or not self.partial:
+                self._signature = (self.role, "content", self.content()[0])
             else:
-                # What was read inside an object read only partly may not be what it starts with, so it looks
-                # only like another object read partly; _pair_partly_read pairs it with one read whole.
-                self._signature = (self.role, "partly read" if self.partial else "content", self.content()[0])
+                # Nothing read inside it tells which object it is, so it looks like no other.
+                self._signature = (self.role, "not read", str(id(self)))
         return self._signature
 
     def is_list(self) -> bool:
@@ -291,6 +322,20 @@ def _descendants(node: _Node) -> Iterator[_Node]:
         current = stack.pop()
         yield current
         stack.extend(current.children[::-1])
+
+
+def _children_and_cut(node: _Node) -> list["_Node | str"]:
+    """The children read of node in document order, with node's cut where the children not read would be."""
+    children: list[_Node | str] = list(node.children)
+    if node.cut is None:
+        return children
+    # The first child read whose position is not the next one from the start, such as the first one read from
+    # the end of a long list: the children before it were read without a hole.
+    hole = next(
+        (position for position, child in enumerate(node.children) if child.index != position), len(children)
+    )
+    children.insert(hole, node.cut)
+    return children
 
 
 def _ancestors(node: _Node) -> Iterator[_Node]:
@@ -380,27 +425,42 @@ def _unchanged(before: _Node, after: _Node) -> bool:
     )
 
 
-def _partial_match(first: _Node, second: _Node, strict: bool) -> bool:
-    """Whether two unnamed objects may be the same one although what is inside one of them was not all read.
+def _partly_read_pair(first: _Node, second: _Node) -> bool:
+    """Whether two unnamed objects may be one object that was not read completely both times.
 
-    Such objects are recognized by the names read inside them, which differ when one walk read less.
-    With strict, for pairing them: only one of them was read partly, something was read inside it, and every
-    name read there is also inside the other. Otherwise, for not comparing them: the names read in one are all
-    inside the other or, when both were read partly, perhaps in different parts, they have a name in common.
+    Such objects are recognized by the first names read inside them, which may differ from themselves when
+    a walk did not read all of those, whatever names were read.
     """
     if first.name or second.name or first.role != second.role or not _compatible(first, second):
         return False
-    if not (first.partial or second.partial):
+    return first.partial or second.partial or first.depth_partial != second.depth_partial
+
+
+def _holds_all_names_of(whole: _Node, partly: _Node) -> bool:
+    """Whether everything read inside an object whose first names were not all read is also inside another."""
+    if not (partly.partial or (partly.depth_partial and not whole.depth_partial)):
         return False
-    first_names, second_names = first.names(), second.names()
-    if strict:
-        if first.partial == second.partial:
-            return False
-        partly, whole = (first_names, second_names) if first.partial else (second_names, first_names)
-        return bool(partly) and partly <= whole
-    if first_names <= second_names or second_names <= first_names:
-        return True
-    return first.partial and second.partial and bool(first_names & second_names)
+    names = partly.names()
+    return bool(names) and names <= whole.names()
+
+
+def _same_signature_pair(first: _Node, second: _Node) -> bool:
+    return first.signature == second.signature and _compatible(first, second)
+
+
+def _may_be_one(old: _Node, new: _Node) -> bool:
+    """Whether two objects left unmatched look like one object that could not be paired.
+
+    That happens when it was read from the start one time and from the end the other, or next to a part not
+    read; what moved between them did not move.
+    """
+    if old.match is not None or new.match is not None or old.role != new.role or not _compatible(old, new):
+        return False
+    return (
+        _partly_read_pair(old, new)
+        or old.label_norm == new.label_norm
+        or _similar(old.label_norm, new.label_norm)
+    )
 
 
 def _touches_unread(nodes: list[_Node], start: int, end: int, region: str, parent: _Node) -> bool:
@@ -423,6 +483,13 @@ def _all_read(parent: _Node, region: str, low: int, high: int) -> bool:
         return False
     read = {_position(child, region) for child in parent.children}
     return all(position in read for position in range(low + 1, high))
+
+
+def _child_total(node: _Node) -> int | None:
+    """How many children an object has, as it reports them or, when read completely, as read."""
+    if node.child_count is not None:
+        return node.child_count
+    return len(node.children) if node.cut is None else None
 
 
 def _reads_to_end(node: _Node) -> bool:
@@ -494,35 +561,55 @@ def _label(node: _Node, contents: bool = True) -> str:
     return f'{node.role} (no name) containing "{_clip(shown)}"' if shown else f"{node.role} (no name)"
 
 
+_CONTEXT_DETAILS = ("contents", "position", "ancestors")
+
+
 def _context_label(node: _Node, detail: str | None = None) -> str:
     """Where a change happened: role "name" of the object, or of its nearest named ancestor.
 
-    :param detail: "contents" adds what is inside an unnamed object, and "position" also its position among
-        its parent's children, to tell apart places that would otherwise read the same.
+    :param detail: To tell apart places that would otherwise read the same: "contents" adds what is inside
+        an unnamed object, "position" also its position among its parent's children, and "ancestors" also
+        the unnamed objects it is in, with their positions.
     """
+    level = _CONTEXT_DETAILS.index(detail) + 1 if detail else 0
     if node.name:
         label = f'{node.role} "{_clip(node.name)}"'
     else:
         label = f"{node.role} (no name)"
-        shown = node.content()[1] if detail else ""
+        shown = node.content()[1] if level else ""
         if shown:
             label += f' containing "{_clip(shown)}"'
-    if detail == "position" and node.parent is not None:
+    if level >= 2 and node.parent is not None:
         label += f" at position {_position_text(node)}"
-    if node.name:
+    if node.name and level < 3:
         return label
-    ancestor = next((ancestor for ancestor in _ancestors(node) if ancestor.name), None)
-    return label if ancestor is None else f'{label} in {ancestor.role} "{_clip(ancestor.name)}"'
+    for ancestor in _ancestors(node):
+        if ancestor.name:
+            return f'{label} in {ancestor.role} "{_clip(ancestor.name)}"'
+        if level >= 3:
+            label += f" in {ancestor.role} (no name)"
+            if ancestor.parent is not None:
+                label += f" at position {_position_text(ancestor)}"
+    return label
 
 
 def _context_labels(places: list[_Node]) -> dict[_Node, str]:
     """A label for each place where something changed, told apart where two places would read the same."""
     labels = {place: _context_label(place) for place in places}
-    for detail in ("contents", "position"):
+    for detail in _CONTEXT_DETAILS:
         counts = Counter(labels.values())
         for place in places:
             if counts[labels[place]] > 1:
                 labels[place] = _context_label(place, detail)
+    # Only a snapshot that gives two children one position still has places that read the same: number them,
+    # so that each place has its own heading.
+    counts = Counter(labels.values())
+    numbers: Counter[str] = Counter()
+    for place in places:
+        label = labels[place]
+        if counts[label] > 1:
+            numbers[label] += 1
+            labels[place] = f"{label} (place {numbers[label]})"
     return labels
 
 
@@ -715,13 +802,25 @@ class _Differ:
             elif tag == "replace":
                 old_block, new_block = before[before_start:before_end], after[after_start:after_end]
                 similar = self._similar_pairs(old_block, new_block)
-                if _touches_unread(
-                    before, before_start, before_end, region, before_parent
-                ) or _touches_unread(after, after_start, after_end, region, after_parent):
+                old_edge = _touches_unread(before, before_start, before_end, region, before_parent)
+                new_edge = _touches_unread(after, after_start, after_end, region, after_parent)
+                if old_edge or new_edge:
                     # Next to children that were not read, an object may have gone there or come from there,
                     # so a similar name shows neither that two objects are the same nor that they are not.
+                    # Unless only one time stopped reading there, the parent has as many children both times
+                    # and the two are in the same place, outside a list, whose items come and go at its ends.
+                    total = _child_total(before_parent)
+                    in_place = (
+                        not (old_edge and new_edge)
+                        and total is not None
+                        and total == _child_total(after_parent)
+                        and not (before_parent.is_list() or after_parent.is_list())
+                    )
                     for old, new in similar:
-                        self.unsure[old], self.unsure[new] = new, old
+                        if in_place and _position(old, region) == _position(new, region):
+                            self._pair(old, new, "structure")
+                        else:
+                            self.unsure[old], self.unsure[new] = new, old
                 else:
                     for old, new in similar:
                         self._pair(old, new, "structure")
@@ -733,44 +832,48 @@ class _Differ:
 
         Each takes the first similar one left, so that rows renamed in place pair up one to one even when
         their names are all alike, as "Chat 1" and "Chat 10" are. Only the next few are tried, which keeps
-        a long list whose items all changed quick to compare. Unnamed objects read only partly are not
-        recognized by what was read in them, so they are left to _pair_partly_read.
+        a long list whose items all changed quick to compare. Unnamed objects are compared by the names
+        read inside them, also when some of those were not read; but not when one of the two may as well be
+        another object on the other side whose first names were not all read.
         """
         pairs = []
         start = 0
         for old in before:
-            if old.match is not None or old.partial:
+            if old.match is not None:
                 continue
             for index in range(start, min(len(after), start + SIMILAR_LOOKAHEAD)):
                 new = after[index]
-                if new.match is not None or new.partial or new.role != old.role or not _compatible(old, new):
+                if new.match is not None or new.role != old.role or not _compatible(old, new):
                     continue
                 if _similar(old.label_norm, new.label_norm):
-                    pairs.append((old, new))
-                    start = index + 1
+                    if not any(
+                        other is not new and other.match is None and _partly_read_pair(old, other)
+                        for other in after
+                    ) and not any(
+                        other is not old and other.match is None and _partly_read_pair(other, new)
+                        for other in before
+                    ):
+                        pairs.append((old, new))
+                        start = index + 1
                     break
         return pairs
 
     def _pair_partly_read(self, before: list[_Node], after: list[_Node]) -> None:
-        """Pairs an unnamed object read partly with the object read whole that holds everything read in it.
+        """Pairs an unnamed object read partly with one that holds everything read in it.
 
         Only when neither of the two has another object on the other side that it may be; otherwise which is
         which would be a guess, and they are left unmatched (and not compared).
         """
-        if not any(node.partial for node in before + after):
-            return
         for old in before:
             if old.match is not None:
                 continue
-            candidates = [
-                new for new in after if new.match is None and _partial_match(old, new, strict=False)
-            ]
-            if len(candidates) != 1 or not _partial_match(old, candidates[0], strict=True):
+            candidates = [new for new in after if new.match is None and _partly_read_pair(old, new)]
+            if len(candidates) != 1:
                 continue
             new = candidates[0]
-            if [
-                other for other in before if other.match is None and _partial_match(other, new, strict=False)
-            ] == [old]:
+            if not (_holds_all_names_of(old, new) or _holds_all_names_of(new, old)):
+                continue
+            if [other for other in before if other.match is None and _partly_read_pair(other, new)] == [old]:
                 self._pair(old, new, "structure")
 
     def _pair_recreated(self, before: _Node, after: _Node) -> None:
@@ -801,7 +904,13 @@ class _Differ:
         return None
 
     def _pair_wrapped(self, before: _Node, after: _Node) -> None:
-        """Pairs children that moved into a new wrapper object, or out of one that went away, without ids."""
+        """Pairs children that moved into a new wrapper object, or out of one that went away, without ids.
+
+        Only in a parent read completely both times: otherwise an object that looks like one in the wrapper
+        may be another one, while that one is in the part not read.
+        """
+        if before.cut is not None or after.cut is not None:
+            return
         for wrapper in after.children:
             if wrapper.match is None and wrapper.children:
                 candidates = [child for child in before.children if child.match is None]
@@ -845,52 +954,61 @@ class _Differ:
         """Pairs objects without ids that hold mostly the same objects with ids, such as a renamed pane.
 
         Otherwise a pane renamed to something dissimilar, or one read from the start one time and from the end
-        the other, would read as removed and added, with everything inside it moved.
+        the other, would read as removed and added, with everything inside it moved. Two objects that look
+        alike need only share more of those objects with each other than with anything else.
         """
         if not any(child.match is None for child in before.children):
             return
         for new in after.children:
             if new.match is not None:
                 continue
-            old = self._holder_of_counterparts(new, before)
-            if (
-                old is not None
-                and old.match is None
-                and old.role == new.role
-                and _compatible(old, new)
-                and self._holder_of_counterparts(old, after) is new
-            ):
+            old, most = self._holder_of_counterparts(new, before)
+            if old is None or old.match is not None or old.role != new.role or not _compatible(old, new):
+                continue
+            holder, most_back = self._holder_of_counterparts(old, after)
+            if holder is new and ((most and most_back) or _may_be_one(old, new)):
                 self._pair(old, new, "structure")
 
     @staticmethod
-    def _holder_of_counterparts(node: _Node, other: _Node) -> _Node | None:
-        """The child of other that holds the counterparts of most of the objects in node matched by id."""
+    def _holder_of_counterparts(node: _Node, other: _Node) -> tuple[_Node | None, bool]:
+        """The child of other that holds the counterparts of more objects with ids in node than any other.
+
+        Also whether those are most of the objects with ids in node. Objects with ids that have no counterpart
+        count too, so that two containers sharing one object are not taken for one; but only when the holder
+        was read whole, as otherwise they may be in the part of it that was not read.
+        """
         holders: Counter[_Node] = Counter()
-        total = 0
+        matched = unmatched = 0
         for descendant in _descendants(node):
-            if descendant.how != "key":
+            if descendant.key is None:
                 continue
-            total += 1
+            if descendant.how != "key":
+                unmatched += 1
+                continue
+            matched += 1
             current = descendant.match
             while current.parent is not None and current.parent is not other:
                 current = current.parent
             if current.parent is other:
                 holders[current] += 1
         if not holders:
-            return None
-        holder, count = holders.most_common(1)[0]
-        return holder if count * 2 > total else None
+            return None, False
+        (holder, count), *others = holders.most_common(2)
+        if others and others[0][1] == count:
+            return None, False
+        total = matched + (0 if holder.cut_inside else unmatched)
+        return holder, count * 2 > total
 
     def _pair_reordered(self, before: _Node, after: _Node) -> None:
         """Pairs objects that changed places among their siblings, such as in a list sorted again.
 
         Aligning keeps the order, so an object without an id that moved is left over on both sides. When the
-        parent was read completely at least one of the times and nothing else left over looks the same, it is
-        the same object: had it gone, or been new, there would be no such object left over on the side read
-        completely. Objects recognized only by contents that were not all read do not take part: they may look
-        different from themselves.
+        parent was read completely both times and nothing else left over looks the same, it is the same
+        object. When it was not, the object left over on one side may be in the part not read on the other,
+        so such objects are not compared. Objects recognized by contents that were not all read do not take
+        part: they may look different from themselves.
         """
-        if before.cut is not None and after.cut is not None:
+        if before.cut is not None or after.cut is not None:
             return
         old = [child for child in before.children if child.match is None and not child.partial]
         new = [child for child in after.children if child.match is None and not child.partial]
@@ -930,13 +1048,7 @@ class _Differ:
             and before.parent is not None
             and before.parent.match is not after.parent
             and not self._wrapped(before, after)
-            # Two parents left unmatched may be one object that could not be recognized, as a pane without
-            # an id renamed and holding other objects too.
-            and not (
-                before.parent.match is None
-                and after.parent.match is None
-                and _compatible(before.parent, after.parent)
-            )
+            and not _may_be_one(before.parent, after.parent)
         ):
             self._add(
                 "moved here",
@@ -1020,13 +1132,22 @@ class _Differ:
             if self._report_scroll(before, after, gone, new):
                 gone, new = [], []
         self._report_moves(before, after)
+        # Unless the parent was read completely both times, an object left over on one side may have moved to
+        # or from the part not read on the other side, where an object that looks the same was left over.
+        complete = before.cut is None and after.cut is None
+        # A message added at the end of a chat is added, even if one like it is in the part not read after.
+        appended = {child for child in new if after.cut is not None and self._appended(child, after, before)}
         removed = added = 0
         for child in gone:
             order = self._removed_order(child, before, after)
-            if any(_partial_match(child, other, strict=False) for other in new):
+            if any(_partly_read_pair(child, other) for other in new):
                 self.pending.append(("before partly", after, _label(child), order))
             elif self._unsure(child):
                 self.pending.append(("before unsure", after, _label(child), order))
+            elif not complete and any(
+                _same_signature_pair(child, other) and other not in appended for other in new
+            ):
+                self.pending.append(("before same", after, _label(child), order))
             elif after.cut is None:
                 self._add("removed", after, _label(child, contents=False), _inside(child), order, child.role)
                 removed += 1
@@ -1036,13 +1157,18 @@ class _Differ:
                 self.pending.append(("before only", after, _label(child), order))
         for child in new:
             order = (child.order, 0, 0)
-            if any(_partial_match(child, other, strict=False) for other in gone):
+            if any(_partly_read_pair(child, other) for other in gone):
                 self.pending.append(("after partly", after, _label(child), order))
             elif self._unsure(child):
                 self.pending.append(("after unsure", after, _label(child), order))
-            elif before.cut is None or self._appended(child, after, before):
+            elif child in appended or (
+                not (twin := not complete and any(_same_signature_pair(child, other) for other in gone))
+                and (before.cut is None or self._appended(child, after, before))
+            ):  # twin is set whenever this is false, as an object in appended is added
                 self._add("added", after, _label(child, contents=False), _inside(child), order, child.role)
                 added += 1
+            elif twin:
+                self.pending.append(("after same", after, _label(child), order))
             elif self._between_matched(child, after, before):
                 self._add("appeared", after, _label(child), APPEARED, order, child.role)
             else:
@@ -1255,6 +1381,10 @@ class _Differ:
             elif why == "unsure":
                 similar = "the object with a similar name" if one else "the objects with similar names"
                 ending = f"{pronoun} may be {similar} read {other}, next to a part that was not read"
+            elif why == "same":
+                where = "to another place" if side == "before" else "there from another place"
+                like = "an object that looks the same was" if one else "objects that look the same were"
+                ending = f"{pronoun} may have moved {where}, where {like} read {other}"
             elif side == "before":
                 ending = f"that part was not read completely after, so {pronoun} may still be there"
             else:

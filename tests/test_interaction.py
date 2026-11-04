@@ -1036,12 +1036,108 @@ def test_unnamed_row_with_a_reading_error_inside_is_not_removed():
     assert len(diff.not_compared) == 1 and 'cell "5:40 AM", cell "see you"' in diff.not_compared[0]
 
 
-def test_unnamed_rows_read_partly_with_other_contents_are_still_compared():
-    # What was read inside the new row is not in the old one, so it is another object.
+def test_unnamed_rows_read_partly_with_other_contents_are_not_compared():
+    # The new row may be the old one with its first cell renamed and the second not read: whatever names were
+    # read, it is neither added nor removed.
     before = snapshot(node("grouping", "Chats", None, [unnamed_row("Ana", "hello")]))
     partly = unnamed_row("Eve") | {"cut": "error", "childCount": 2}
     diff = diff_snapshots(before, snapshot(node("grouping", "Chats", None, [partly])))
-    assert sorted(kinds(diff)) == ["added", "removed"]
+    assert diff.changes == []
+    assert [note.split(":")[0] for note in diff.not_compared] == [
+        '1 object in grouping "Chats" read only before (row (no name) containing "Ana, hello")',
+        '1 object in grouping "Chats" read only after (row (no name) containing "Eve")',
+    ]
+
+
+def test_unnamed_row_read_partly_after_its_first_names_is_compared_inside():
+    # Ana's unread count went from 2 to 3, and reading the last cell of her row failed after.
+    def chats(ana):
+        return snapshot(
+            node("table", "Chats", None, [ana, unnamed_row("Bob", "5:40 AM", "see you", "muted")])
+        )
+
+    whole = chats(unnamed_row("Ana", "5:47 AM", "hello", "2 unread", "pinned"))
+    partly = chats(unnamed_row("Ana", "5:47 AM", "hello", "3 unread") | {"cut": "error", "childCount": 5})
+    diff = diff_snapshots(whole, partly)
+    assert located(diff) == [
+        ('row (no name) in table "Chats"', "renamed", 'cell "2 unread"', 'to "3 unread"')
+    ]
+    assert diff.not_compared == [
+        (
+            '1 object in row (no name) in table "Chats" read only before (cell "pinned"): '
+            "that part was not read completely after, so it may still be there."
+        )
+    ]
+    assert summary(diff_snapshots(partly, whole)) == [("renamed", 'cell "3 unread"', 'to "2 unread"')]
+
+
+def test_unnamed_list_growing_past_its_head_and_tail_has_its_new_messages_added():
+    def messages(numbers):
+        return [node("list item", f"message {number}") for number in numbers]
+
+    compose = node("edit", "Type a message", "hwnd:6")
+    before = snapshot(
+        node("window", "Chat", "hwnd:5", [node("list", "", None, messages(range(1, 7))), compose])
+    )
+    grown = long_list("list", "", None, messages([1, 2, 3]), messages([6, 7, 8]), 8)
+    diff = diff_snapshots(before, snapshot(node("window", "Chat", "hwnd:5", [grown, compose])))
+    assert summary(diff) == [("added", 'list item "message 7"', ""), ("added", 'list item "message 8"', "")]
+    assert len(diff.not_compared) == 1
+    assert 'read only before (list item "message 4", list item "message 5")' in diff.not_compared[0]
+
+
+def test_unnamed_list_where_the_node_budget_ran_out_is_compared_inside():
+    def messages(names):
+        return [node("list item", name) for name in names]
+
+    whole = node("list", "", None, messages(["Ana: hi", "Bob: lunch?", "Ana: noon", "Bob: ok"]))
+    before = snapshot(node("window", "Chat", "hwnd:5", [whole, node("edit", "Type a message", "hwnd:6")]))
+    partly = node(
+        "list",
+        "",
+        None,
+        messages(["Ana: hi (edited)", "Bob: lunch?", "Ana: noon"]),
+        cut="nodes",
+        childCount=4,
+    )
+    window = node("window", "Chat", "hwnd:5", [partly], cut="nodes", childCount=2)
+    diff = diff_snapshots(before, snapshot(window, truncated="stopped after 5 nodes"))
+    assert located(diff) == [
+        ('list (no name) in window "Chat"', "renamed", 'list item "Ana: hi"', 'to "Ana: hi (edited)"')
+    ]
+    assert len(diff.not_compared) == 3
+    assert 'read only before (list item "Bob: ok")' in diff.not_compared[1]
+    assert 'read only before (edit "Type a message")' in diff.not_compared[2]
+
+
+def test_unnamed_list_read_with_its_middle_skipped_is_compared_inside():
+    def app(first):
+        def items(names):
+            return [node("list item", name) for name in names]
+
+        unnamed = long_list("list", "", None, items([first, "beta", "gamma"]), items(["x", "y", "z"]), 30)
+        return snapshot(node("window", "App", None, [node("button", "OK"), unnamed]))
+
+    diff = diff_snapshots(app("alpha one"), app("alpha two"))
+    assert located(diff) == [
+        ('list (no name) in window "App"', "renamed", 'list item "alpha one"', 'to "alpha two"')
+    ]
+    assert diff.not_compared == []
+
+
+def test_depth_limit_inside_unnamed_rows_does_not_stop_comparing_them():
+    def files(size):
+        def row(name, size):
+            menu = node("cell", "menu", cut="depth", childCount=2)
+            return node("row", "", None, [node("cell", name), node("cell", size), menu])
+
+        return snapshot(node("table", "Files", None, [row("a.txt", size), row("b.txt", "5 KB")]))
+
+    diff = diff_snapshots(files("3 KB"), files("4 KB"))
+    assert summary(diff) == [("renamed", 'cell "3 KB"', 'to "4 KB"')]
+    assert diff.not_compared == [
+        'What is inside 2 objects at the depth limit, such as cell "menu", cell "menu".'
+    ]
 
 
 # Objects without ids
@@ -1069,12 +1165,114 @@ def test_parent_without_an_id_read_from_the_other_end_is_matched_through_the_obj
     assert diff.changes == []
 
 
+def test_parent_without_an_id_renamed_and_read_partly_is_matched_through_the_objects_inside():
+    # Only Reply was read inside the pane after: the other buttons may be in the part not read.
+    buttons = [
+        node("button", name, f"hwnd:{number}")
+        for number, name in enumerate(["Reply", "Forward", "Delete"], 7)
+    ]
+    before = snapshot(node("window", "App", "hwnd:1", [node("pane", "Inbox (3)", None, buttons)]))
+    partly = node("pane", "Sent", None, buttons[:1], cut="nodes", childCount=3)
+    diff = diff_snapshots(before, snapshot(node("window", "App", "hwnd:1", [partly]), truncated="stopped"))
+    assert located(diff) == [('window "App"', "renamed", 'pane "Inbox (3)"', 'to "Sent"')]
+
+
+def test_parents_without_ids_sharing_one_object_are_not_taken_for_one():
+    def mail(pane):
+        return snapshot(node("window", "Mail", "hwnd:1", [pane, node("button", "New", "hwnd:2")]))
+
+    def buttons(*numbers):
+        return [
+            node("button", f"{'Old' if number < 20 else 'New'} {number % 10}", f"hwnd:{number}")
+            for number in numbers
+        ]
+
+    before = mail(node("pane", "Archived", None, buttons(11, 12, 13, 14, 15)))
+    diff = diff_snapshots(before, mail(node("pane", "Inbox", None, buttons(21, 22, 13, 24, 25))))
+    assert located(diff) == [
+        (
+            'window "Mail"',
+            "removed",
+            'pane "Archived"',
+            '(5 objects inside, such as "Old 1", "Old 2", "Old 3")',
+        ),
+        ('window "Mail"', "added", 'pane "Inbox"', '(5 objects inside, such as "New 1", "New 2", "Old 3")'),
+        ('pane "Inbox"', "moved here", 'button "Old 3"', 'from pane "Archived"'),
+    ]
+
+
+def test_parent_without_an_id_that_looks_the_same_is_matched_through_fewer_objects_inside():
+    # Item 6 has no id and was read from the start before and from the end after. It now holds two more
+    # buttons, so its Open button is not most of what it holds, but no other item holds it.
+    def item(number, *extra):
+        buttons = [node("button", "Open", f"ia2:1:-{number}"), *extra]
+        return node("list item", f"item {number}", None, buttons)
+
+    items = [item(number) for number in range(1, 7)]
+    before = snapshot(node("list", "Files", "ia2:1:-900", items, cut="error", childCount=8))
+    shared = item(6, node("button", "Share", "ia2:1:-61"), node("button", "Delete", "ia2:1:-62"))
+    after = snapshot(long_list("list", "Files", "ia2:1:-900", items[:3], [shared, item(7), item(8)], 8))
+    diff = diff_snapshots(before, after)
+    assert located(diff) == [
+        ('list item "item 6"', "added", 'button "Share"', ""),
+        ('list item "item 6"', "added", 'button "Delete"', ""),
+    ]
+
+
 def test_reordered_objects_without_ids_are_moved_not_added_and_removed():
     def files(names):
         return snapshot(node("list", "Files", None, [node("list item", name) for name in names]))
 
     diff = diff_snapshots(files(["a.txt", "b.txt", "c.txt"]), files(["b.txt", "a.txt", "c.txt"]))
     assert summary(diff) == [("moved", 'list item "b.txt"', "from position 2 to 1")]
+
+
+def test_object_like_one_left_over_in_a_list_read_partly_is_not_compared():
+    # Read whole before; after, reading stopped after three items. The "ok" read after may be new, or the one
+    # read before at the end, moved up: neither moved nor added can be told.
+    def messages(names, **extra):
+        return snapshot(node("list", "Messages", None, [node("list item", name) for name in names], **extra))
+
+    whole = messages(["a", "b", "c", "ok"])
+    partly = messages(["a", "ok", "b"], cut="nodes", childCount=5)
+    diff = diff_snapshots(whole, partly)
+    assert kinds(diff) == ["child count"]
+    assert diff.not_compared == [
+        (
+            '1 object in list "Messages" read only after (list item "ok"): '
+            "it may have moved there from another place, where an object that looks the same was read before."
+        ),
+        (
+            '1 object in list "Messages" read only before (list item "c"): '
+            "that part was not read completely after, so it may still be there."
+        ),
+        (
+            '1 object in list "Messages" read only before (list item "ok"): '
+            "it may have moved to another place, where an object that looks the same was read after."
+        ),
+    ]
+    # Reading stopped before: "ok" may have been removed, or moved to the end where another "ok" was read.
+    mirror = diff_snapshots(messages(["a", "ok", "b"], cut="nodes", childCount=5), whole)
+    assert not of_kind(mirror, "moved") and not of_kind(mirror, "removed")
+
+
+def test_message_like_one_in_the_unread_middle_appended_to_a_list_is_added():
+    def messages(names):
+        return [node("list item", name) for name in names]
+
+    names = ["Ana: hi", "Bob: lunch?", "Ana: where", "Bob: ok", "Ana: noon", "Bob: see you"]
+    before = snapshot(node("list", "Messages", "hwnd:3", messages(names)))
+    tail = messages([*names[4:], "Bob: ok"])
+    diff = diff_snapshots(
+        before, snapshot(long_list("list", "Messages", "hwnd:3", messages(names[:3]), tail, 7))
+    )
+    assert summary(diff) == [("added", 'list item "Bob: ok"', "")]
+    assert diff.not_compared == [
+        (
+            '1 object in list "Messages" read only before (list item "Bob: ok"): '
+            "that part was not read completely after, so it may still be there."
+        )
+    ]
 
 
 def test_long_names_show_only_the_changed_part_when_clocks_are_ignored():
@@ -1138,4 +1336,22 @@ def test_unnamed_objects_with_the_same_contents_are_told_apart_by_position():
     assert [change.context for change in diff.changes] == [
         'row (no name) containing "same" at position 1 in table "T"',
         'row (no name) containing "same" at position 2 in table "T"',
+    ]
+
+
+def test_places_that_look_alike_in_unnamed_parents_get_their_own_headings():
+    # Each row has an unnamed cell at position 1 whose text changed the same way.
+    def table(text):
+        def row(number):
+            cell = node("cell", "", f"ia2:1:-{number}1", [node("text", text, f"ia2:1:-{number}2")])
+            return node("row", "", f"ia2:1:-{number}", [cell, node("cell", "", f"ia2:1:-{number}3")])
+
+        return snapshot(node("table", "T", "ia2:1:-9", [row(1), row(2)]))
+
+    lines = changes_markdown(diff_snapshots(table("sent"), table("read")))
+    assert lines[1:] == [
+        'In cell (no name) containing "read" at position 1 in row (no name) at position 1 in table "T":',
+        '- renamed: text "sent" to "read"',
+        'In cell (no name) containing "read" at position 1 in row (no name) at position 2 in table "T":',
+        '- renamed: text "sent" to "read"',
     ]
