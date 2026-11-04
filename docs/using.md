@@ -56,7 +56,7 @@ through the browser's remote debugging, in Chrome, Brave or Edge. Two switches a
    so you stay signed in to WhatsApp Web.
 
 The first time the assistant reads a page, NVDA says it is connecting, then the browser comes to the front and
-asks **Allow remote debugging?**. **Cancel** has focus: press Tab to reach **Allow**, then Enter.
+asks **Allow remote debugging?**. **Cancel** has focus: press Shift+Tab once to reach **Allow**, then Enter.
 The browser shows a bar saying it is being controlled by automated software while the connection is open;
 NVDA MCP closes it after a minute without use. If you choose Cancel, the assistant gets `refused` and does not
 try again on its own.
