@@ -76,6 +76,8 @@ def _snapshotNode(obj: NVDAObject) -> dict[str, Any]:
 	node: dict[str, Any] = {
 		"key": objectKey(obj),
 		"role": role.displayString if role is not None else "unknown",
+		# The same in every language, for the server's rules about lists.
+		"roleId": role.name if role is not None else "UNKNOWN",
 	}
 	for name in ("name", "value", "description"):
 		text = _safeGet(obj, name)
