@@ -58,7 +58,7 @@ Untuk developer dan penguji:
 
 ## Yang dibutuhkan
 
-- Windows dengan NVDA 2026.3 atau lebih baru.
+- Windows dengan NVDA 2025.1 atau lebih baru.
 - Asisten AI yang mendukung MCP, misalnya Claude Code, Claude Desktop, Codex CLI, Cursor, atau VS Code.
 - [uv](https://docs.astral.sh/uv/), yang mengunduh dan menjalankan server NVDA MCP untuk Anda.
   Jika Anda sudah punya Python 3.11 atau lebih baru, Anda bisa memakai pip atau pipx.

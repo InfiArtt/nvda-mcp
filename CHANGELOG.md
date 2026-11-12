@@ -8,6 +8,12 @@ install them together.
 
 ## [Unreleased]
 
+### Changed
+
+- The add-on now works with NVDA 2025.1 and later, not only 2026.3 and later.
+  On NVDA before 2026.3, which cannot register an add-on's settings at installation,
+  the add-on adds its settings when NVDA starts, and its settings can be saved in a configuration profile.
+
 ## [1.1.0] - 2026-11-05
 
 ### Added

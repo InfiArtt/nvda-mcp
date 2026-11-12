@@ -9,7 +9,7 @@ Bug reports, ideas and pull requests are welcome. The organization's general rul
 MCP client ⇄ (stdio) nvda-mcp server ⇄ (HTTP on 127.0.0.1, token) NVDA add-on ⇄ NVDA
 ```
 
-- **`addon/`**: the NVDA add-on (NVDA 2026.3 or later). It records everything NVDA speaks and runs a small bridge
+- **`addon/`**: the NVDA add-on (NVDA 2025.1 or later). It records everything NVDA speaks and runs a small bridge
   that only accepts local, authenticated requests. When NVDA starts, it writes the bridge's port and a fresh token
   to `%APPDATA%\nvda\nvdaMcp\connection.json`.
 - **`src/nvda_mcp/`**: the MCP server, built on the official MCP Python SDK. It reads that file on every call,

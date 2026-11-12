@@ -8,7 +8,7 @@ NVDA MCP lets AI assistants work with the NVDA screen reader through the Model C
 Its users are mostly blind or low vision; some are developers of NVDA add-ons and accessible applications.
 It has two parts that share one version number and must be released together:
 
-- `addon/`: an NVDA add-on (Python 3, NVDA 2026.3 or later) with a local HTTP bridge protected by a per-start token.
+- `addon/`: an NVDA add-on (Python 3, NVDA 2025.1 or later) with a local HTTP bridge protected by a per-start token.
   It follows NVDA's coding standards: tabs, camelCase, user-facing strings wrapped in `_()` with `# Translators:` comments.
 - `src/nvda_mcp/`: the MCP server (Python 3.11 or later, official MCP Python SDK), which talks to the bridge.
   It follows PEP 8.

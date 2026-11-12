@@ -6,6 +6,7 @@
 
 Registered sections are written to disk and loaded at the next NVDA start,
 which is when a newly installed add-on runs for the first time.
+Older versions of NVDA have no such API; the plugin then adds the section each time it starts.
 """
 
 import importlib.util
@@ -22,7 +23,11 @@ def _loadConfigSpec():
 
 
 def onInstall() -> None:
-	from config.configSections import registerSection
+	try:
+		from config.configSections import registerSection
+	except ImportError:
+		# NVDA 2025.1 to 2026.2: the plugin adds the section itself when it starts.
+		return
 
 	configSpec = _loadConfigSpec()
 	# Base only: whether Claude may press keys is a security choice, not something to vary per profile.
@@ -33,7 +38,10 @@ def onUninstall() -> None:
 	# This runs early in NVDA's startup; a failure here must not block removing the add-on.
 	try:
 		from config.configSections import unregisterSection
-
+	except ImportError:
+		# NVDA 2025.1 to 2026.2: nothing was registered.
+		return
+	try:
 		unregisterSection(_loadConfigSpec().CONFIG_SECTION)
 	except Exception:  # noqa: BLE001 - see comment above
 		from logHandler import log
