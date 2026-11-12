@@ -32,12 +32,17 @@ import tones
 import versionInfo
 import winUser
 import wx
-from braille.extensions import pre_writeCells
 from gui.guiHelper import wxCallOnMain
 from keyboardHandler import KeyboardInputGesture
 from logHandler import log
 from NVDAObjects import NVDAObject
 from speech.extensions import speechCanceled
+
+try:
+	from braille.extensions import pre_writeCells
+except ImportError:
+	# Before NVDA 2026.3, braille was a module rather than a package.
+	from braille import pre_writeCells
 
 from . import apiLookup, nvdaLog, screenCapture, screenImage, windows
 from .bridge import BridgeError, Handler
