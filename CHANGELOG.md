@@ -8,6 +8,8 @@ install them together.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-13
+
 ### Changed
 
 - The add-on now works with NVDA 2025.1 and later, not only 2026.3 and later.
@@ -142,5 +144,6 @@ First release, on the NV Access Add-on Store and PyPI.
 - [docs/using.md](docs/using.md), [CONTRIBUTING.md](CONTRIBUTING.md) and
   [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
+[1.2.0]: https://github.com/InfiArtt/nvda-mcp/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/InfiArtt/nvda-mcp/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/InfiArtt/nvda-mcp/releases/tag/v1.0.0
