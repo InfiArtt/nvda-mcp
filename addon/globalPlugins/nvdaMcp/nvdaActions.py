@@ -70,6 +70,8 @@ MAX_TREE_NESTING = 100
 MAX_TEXT_LINES = 5000
 DELAY_BETWEEN_KEYS_SECONDS = 0.05
 ACCESS_PICTURE_ANSWER_SECONDS = 100
+# How long to wait after the user answers before taking the picture, so the dialog has left the screen.
+PICTURE_AFTER_DIALOG_SECONDS = 1.0
 FOCUS_RETURN_DELAY_SECONDS = 0.5
 # How long NVDA gets to notice a window brought to the front before it is told.
 FOREGROUND_CATCH_UP_SECONDS = 1.0
@@ -1660,6 +1662,8 @@ class NvdaActions:
 				"they ask; use nvda_recognize_text or the accessibility tree instead.",
 			)
 		self._approvedAccessPictureSessions.add(accessSession)
+		# The dialog must be gone and the window behind it redrawn, or the picture shows the dialog.
+		time.sleep(PICTURE_AFTER_DIALOG_SECONDS)
 		return True
 
 	@staticmethod
