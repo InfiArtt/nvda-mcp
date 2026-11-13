@@ -6,7 +6,8 @@ It is copyright (C) 2026 InfiArtt. This file lists the work of others that it us
 ## The NVDA add-on
 
 The add-on (`nvdaMcp-<version>.nvda-addon`) contains only NVDA MCP's own code, its translations, its help pages and
-its license. It bundles no third-party code.
+its license. It bundles no third-party code. For MCP Access it uses the copy of
+[cryptography](https://github.com/pyca/cryptography) (Apache-2.0 or BSD-3-Clause) that NVDA itself ships.
 
 - It runs inside [NVDA](https://www.nvaccess.org), copyright NV Access Limited, licensed under the
   [GNU General Public License, version 2](https://github.com/nvaccess/nvda/blob/master/copying.txt),
@@ -21,8 +22,8 @@ When you install the server, pip or uv downloads the packages below from the Pyt
 each comes with its own license file. They are listed here for your information.
 
 The versions are the ones current when this list was last checked; the server accepts newer ones within the ranges
-in `pyproject.toml`. Its direct dependencies are **mcp**, **httpx** and **websockets**; the rest are what those
-depend on.
+in `pyproject.toml`. Its direct dependencies are **mcp**, **httpx**, **websockets** and **cryptography**; the rest
+are what those depend on.
 
 | Package | Version | License | Source |
 |---|---|---|---|
@@ -30,7 +31,9 @@ depend on.
 | anyio | 4.16.0 | MIT | https://github.com/agronholm/anyio |
 | attrs | 26.1.0 | MIT | https://github.com/python-attrs/attrs |
 | certifi | 2026.10.23 | MPL-2.0 | https://github.com/certifi/python-certifi |
-| click | 8.5.0 | BSD-3-Clause | https://github.com/pallets/click |
+| cffi | 2.1.1 | MIT | https://github.com/python-cffi/cffi |
+| click | 8.5.1 | BSD-3-Clause | https://github.com/pallets/click |
+| cryptography | 50.0.2 | Apache-2.0 or BSD-3-Clause | https://github.com/pyca/cryptography |
 | h11 | 0.16.0 | MIT | https://github.com/python-hyper/h11 |
 | httpcore | 1.0.9 | BSD-3-Clause | https://github.com/encode/httpcore |
 | httpcore2 | 2.16.0 | BSD-3-Clause | https://github.com/pydantic/httpx2 |
@@ -42,18 +45,19 @@ depend on.
 | mcp (MCP Python SDK) | 2.3.0 | MIT | https://github.com/modelcontextprotocol/python-sdk |
 | mcp-types | 2.3.0 | MIT | https://github.com/modelcontextprotocol/python-sdk |
 | opentelemetry-api | 1.45.2 | Apache-2.0 | https://github.com/open-telemetry/opentelemetry-python |
-| pydantic | 2.14.2 | MIT | https://github.com/pydantic/pydantic |
-| pydantic_core | 2.50.2 | MIT | https://github.com/pydantic/pydantic-core |
+| pycparser | 3.12 | BSD-3-Clause | https://github.com/eliben/pycparser |
+| pydantic | 2.14.3 | MIT | https://github.com/pydantic/pydantic |
+| pydantic_core | 2.50.4 | MIT | https://github.com/pydantic/pydantic-core |
 | PyJWT | 2.15.1 | MIT | https://github.com/jpadilla/pyjwt |
 | python-multipart | 0.0.33 | Apache-2.0 | https://github.com/Kludex/python-multipart |
 | pywin32 | 312 | PSF-2.0 | https://github.com/mhammond/pywin32 |
 | referencing | 0.37.0 | MIT | https://github.com/python-jsonschema/referencing |
 | rpds-py | 2026.9.1 | MIT | https://github.com/crate-py/rpds |
-| sse-starlette | 3.6.0 | BSD-3-Clause | https://github.com/sysid/sse-starlette |
+| sse-starlette | 3.7.0 | BSD-3-Clause | https://github.com/sysid/sse-starlette |
 | starlette | 1.10.0 | BSD-3-Clause | https://github.com/Kludex/starlette |
 | truststore | 0.10.5 | MIT | https://github.com/sethmlarson/truststore |
 | typing_extensions | 4.16.0 | PSF-2.0 | https://github.com/python/typing_extensions |
-| typing-inspection | 0.4.4 | MIT | https://github.com/pydantic/typing-inspection |
+| typing-inspection | 0.4.5 | MIT | https://github.com/pydantic/typing-inspection |
 | uvicorn | 0.54.0 | BSD-3-Clause | https://github.com/Kludex/uvicorn |
 | websockets | 17.4 | BSD-3-Clause | https://github.com/python-websockets/websockets |
 
@@ -76,4 +80,7 @@ These are used to develop NVDA MCP but are not part of anything it distributes:
 
 - [uv](https://github.com/astral-sh/uv) (MIT or Apache-2.0), which the README suggests for running the server,
   is installed separately by the user and is not distributed with NVDA MCP.
+- MCP Access connects through a relay that InfiArtt runs at `infiartt.com`, behind
+  [Cloudflare](https://www.cloudflare.com). Sessions are end-to-end encrypted, so neither can read them.
+  The relay is not part of what NVDA MCP distributes.
 - Donations go through PayPal; NVDA MCP only links to the PayPal page and sends it no data.

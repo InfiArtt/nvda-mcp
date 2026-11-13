@@ -8,6 +8,8 @@ install them together.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-13
+
 ### Added
 
 - **MCP Access**: someone you trust helps you from their own computer, with their AI assistant working through
