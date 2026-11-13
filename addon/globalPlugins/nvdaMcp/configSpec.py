@@ -23,6 +23,9 @@ CONFIG_SPEC: dict[str, str] = {
 	# MCP Access helpers ask the person being helped before pressing keys, once per session, whatever
 	# allowControl says; this turns that off completely.
 	"blockAccessControl": "boolean(default=False)",
+	# MCP Access helpers ask before taking pictures of the screen, once per session, whatever
+	# allowScreenCapture says; this turns that off completely.
+	"blockAccessCapture": "boolean(default=False)",
 	"accessRelay": "string(default='wss://infiartt.com/mcp-access/v1')",
 }
 

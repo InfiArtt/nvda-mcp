@@ -275,8 +275,10 @@ async def nvda_access_connect(
     The connection is end-to-end encrypted: the relay in between cannot read it. Action tools work there too:
     the first one NVDA asks them to allow for this session, even if key presses are off in their settings,
     unless they turned MCP Access key presses off (mayAccessHelpersAskToPressKeys in nvda_get_status).
-    Say what you will press before pressing it; they hear every key. Some tools are refused through MCP Access (notAllowedOverAccess): reloading add-ons,
-    running NVDA commands, NVDA's log and settings, reading web pages' HTML, and pictures of the screen.
+    nvda_capture_control also asks them first, once per session; prefer nvda_recognize_text and the tree.
+    Say what you will press before pressing it; they hear every key. Some tools are refused through MCP
+    Access (notAllowedOverAccess): reloading add-ons, running NVDA commands, NVDA's log and settings, and
+    reading web pages' HTML.
     Tell the user whose computer you are working on, and never ask the person for passwords.
     """
     global _access
@@ -1973,7 +1975,8 @@ async def nvda_capture_control(
     at the control's position, so its window should be in front. It works with NVDA's Screen Curtain on.
     """
     params: dict[str, Any] = {"id": id} if id is not None else {"target": target.value}
-    result = await _call("captureControl", {**params, "padding": padding})
+    # Through MCP Access, the person being helped is asked first and may take a while to answer.
+    result = await _call("captureControl", {**params, "padding": padding}, timeout=PRESS_KEYS_TIMEOUT_SECONDS)
     try:
         previews = (await _call("previewSpeech", {**params, "maxResults": 1})).get("previews", [])
     except ToolError:
@@ -2322,6 +2325,17 @@ def report_problem_prompt(
 ) -> str:
     """Gather the facts about an accessibility problem and write a report the user can send to the developer."""
     return prompts.report_problem(problem)
+
+
+@mcp.prompt(name="help_someone", title="Help someone through MCP Access")
+def help_someone_prompt(
+    code: Annotated[
+        str, Field(description="The MCP Access code they sent, such as K7Q4-9XMC-4TRW-PH3N-AD6F.")
+    ],
+    problem: Annotated[str | None, Field(description="What they need help with, if they said.")] = None,
+) -> str:
+    """Connect to someone's NVDA with the code they sent, and help them safely while they stay in control."""
+    return prompts.help_someone(code, problem)
 
 
 def main() -> None:

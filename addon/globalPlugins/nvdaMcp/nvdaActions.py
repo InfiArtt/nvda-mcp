@@ -69,6 +69,7 @@ TREE_TIME_BUDGET_SECONDS = 3.0
 MAX_TREE_NESTING = 100
 MAX_TEXT_LINES = 5000
 DELAY_BETWEEN_KEYS_SECONDS = 0.05
+ACCESS_PICTURE_ANSWER_SECONDS = 100
 FOCUS_RETURN_DELAY_SECONDS = 0.5
 # How long NVDA gets to notice a window brought to the front before it is told.
 FOREGROUND_CATCH_UP_SECONDS = 1.0
@@ -763,6 +764,8 @@ class NvdaActions:
 		self._actionLog = actionLog
 		# MCP Access sessions whose helper the user allowed to press keys. A new session asks again.
 		self._approvedAccessSessions: set[str] = set()
+		# MCP Access sessions whose helper the user allowed to take pictures of the screen.
+		self._approvedAccessPictureSessions: set[str] = set()
 		# Records what actions change (interactionRecorder.InteractionRecorder), set by DevTools.
 		self.recorder: Any = None
 		# One action at a time, so concurrent requests cannot interleave keys or steal each other's speech.
@@ -776,6 +779,7 @@ class NvdaActions:
 		"""Require the user to approve again before the next key press, even if confirmation is turned off."""
 		controlApproval.revoke()
 		self._approvedAccessSessions.clear()
+		self._approvedAccessPictureSessions.clear()
 
 	def handlers(self) -> dict[str, Handler]:
 		return {
@@ -1620,6 +1624,90 @@ class NvdaActions:
 			controlApproval.approve()
 		# Give Windows time to hand focus back to the user's window before keys are sent.
 		time.sleep(FOCUS_RETURN_DELAY_SECONDS)
+
+	def ensureAccessPicturesAllowed(self, params: dict[str, Any]) -> bool:
+		"""For a picture of the screen: whether an MCP Access helper asks, after the user allowed it this session.
+
+		Runs on the bridge's thread, since it may wait for the user's answer.
+		:return: False for requests from this computer, which follow the allowScreenCapture setting instead.
+		:raises BridgeError: When the user refuses, does not answer, or never lets helpers take pictures.
+		"""
+		accessSession = params.get("viaAccess") if isinstance(params.get("viaAccess"), str) else None
+		if accessSession is None:
+			return False
+		if config.conf[CONFIG_SECTION]["blockAccessCapture"]:
+			raise BridgeError(
+				"screenCaptureDisabled",
+				"The person being helped does not let MCP Access helpers take pictures of their screen. "
+				"Use nvda_recognize_text or the accessibility tree instead.",
+			)
+		if accessSession in self._approvedAccessPictureSessions:
+			return True
+		clientName = params.get("clientName") if isinstance(params.get("clientName"), str) else None
+		answer = wxCallOnMain(
+			self._askForAccessPictures, clientName or "A helper", ACCESS_PICTURE_ANSWER_SECONDS
+		)
+		if answer is None:
+			raise BridgeError(
+				"approvalTimedOut",
+				"NVDA asked the person being helped to allow pictures of their screen, but they did not answer "
+				"in time, so no picture was taken.",
+			)
+		if not answer:
+			raise BridgeError(
+				"screenCaptureDenied",
+				"The person being helped declined to let you take pictures of their screen. Do not retry unless "
+				"they ask; use nvda_recognize_text or the accessibility tree instead.",
+			)
+		self._approvedAccessPictureSessions.add(accessSession)
+		return True
+
+	@staticmethod
+	def _askForAccessPictures(clientName: str, timeoutSeconds: float) -> bool | None:
+		"""Ask the person being helped whether their MCP Access helper may take pictures of the screen.
+
+		:return: The answer, or None if they did not answer in time.
+		"""
+		import wx
+		from gui import mainFrame
+		from gui.message import DefaultButtonSet, DialogType, MessageDialog, ReturnCode
+
+		# Translators: Title of the dialog asking whether an MCP Access helper may take pictures of the screen.
+		# {client} is the name the helper gives itself, such as "Rafli through MCP Access".
+		title = _("NVDA MCP: allow {client} to take pictures of the screen?").format(client=clientName)
+		dialog = MessageDialog(
+			mainFrame,
+			# Translators: Asks the person being helped whether their MCP Access helper may take pictures.
+			# {client} is the name the helper gives itself, such as "Rafli through MCP Access".
+			_(
+				"{client} wants to take pictures of parts of this computer's screen, to see what a control looks "
+				"like. Each picture shows whatever is on the screen there and is sent to their AI assistant. "
+				"Every picture is written to the action log.\n\n"
+				"Allow this for this MCP Access session only?"
+			).format(client=clientName),
+			title,
+			dialogType=DialogType.WARNING,
+			buttons=DefaultButtonSet.YES_NO,
+		)
+		dialog.setDefaultFocus(ReturnCode.NO)
+		dialog.setFallbackAction(ReturnCode.NO)
+		timedOut = False
+
+		def expire() -> None:
+			nonlocal timedOut
+			timedOut = True
+			dialog.Close()
+
+		timer = wx.CallLater(int(timeoutSeconds * 1000), expire)
+		mainFrame.prePopup()
+		try:
+			answer = dialog.ShowModal()
+		finally:
+			timer.Stop()
+			mainFrame.postPopup()
+		if timedOut:
+			return None
+		return answer == ReturnCode.YES
 
 	@staticmethod
 	def _askForControlApproval(

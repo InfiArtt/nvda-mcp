@@ -160,6 +160,12 @@ class NvdaMcpSettingsPanel(SettingsPanel):
 			wx.CheckBox(self, label=_("&Never let MCP Access helpers press keys")),
 		)
 		self.blockAccessControlCheckBox.SetValue(sectionConfig["blockAccessControl"])
+		self.blockAccessCaptureCheckBox = helper.addItem(
+			# Translators: A checkbox in the NVDA MCP settings panel. Without it, a helper connected through
+			# MCP Access may ask to take pictures of the screen, and NVDA asks the user once per session.
+			wx.CheckBox(self, label=_("Never let MCP Access helpers take p&ictures of the screen")),
+		)
+		self.blockAccessCaptureCheckBox.SetValue(sectionConfig["blockAccessCapture"])
 		self.accessRelayEdit = helper.addLabeledControl(
 			# Translators: A text field in the NVDA MCP settings panel. MCP Access lets a helper's AI assistant
 			# work with this computer's NVDA from far away, through a relay server at this address.
@@ -277,6 +283,7 @@ class NvdaMcpSettingsPanel(SettingsPanel):
 		sectionConfig["allowScreenCapture"] = self.allowScreenCaptureCheckBox.IsChecked()
 		sectionConfig["speechHistorySize"] = self.historySizeSpin.GetValue()
 		sectionConfig["blockAccessControl"] = self.blockAccessControlCheckBox.IsChecked()
+		sectionConfig["blockAccessCapture"] = self.blockAccessCaptureCheckBox.IsChecked()
 		sectionConfig["accessRelay"] = self.accessRelayEdit.GetValue().strip() or accessShare.DEFAULT_RELAY
 
 	def postSave(self) -> None:
@@ -537,7 +544,7 @@ def _askAccessApproval(helperName: str, fingerprint: str) -> bool:
 		_(
 			"Someone with your MCP Access code, calling themselves {helper}, wants to see this computer through "
 			"NVDA, with an AI assistant: what is on the screen, what NVDA says, and the text of windows. "
-			"If they want to press keys, NVDA asks you first.\n\n"
+			"If they want to press keys or take pictures of the screen, NVDA asks you first.\n\n"
 			"Allow this only if you asked this person for help. Never tell them a password. "
 			"Session check: {check}. You can stop sharing at any time.\n\n"
 			"Allow {helper} to connect?"

@@ -151,8 +151,10 @@ def test_the_add_on_and_server_copies_of_the_encryption_agree():
 
 
 def test_risky_methods_are_not_shared():
-    for method in ("reloadPlugins", "runScript", "getLog", "getSettings", "webElementInfo", "captureControl"):
+    for method in ("reloadPlugins", "runScript", "getLog", "getSettings", "webElementInfo"):
         assert method not in accessShare.ALLOWED_METHODS
+    # Pictures and key presses reach the add-on, which asks the person being helped once per session.
+    assert {"captureControl", "pressKeys"} <= accessShare.ALLOWED_METHODS
 
 
 def test_large_messages_are_masked_correctly():

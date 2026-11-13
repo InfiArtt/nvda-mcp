@@ -471,7 +471,7 @@ class DevTools:
 			"previewSpeech": onMain(self._previewSpeech),
 			"getSettings": onMain(self._getSettings),
 			"lookupApi": self._lookupApi,
-			"captureControl": onMain(self._captureControl),
+			"captureControl": self._captureControlEntry,
 			"recognizeText": self._recognizeText,
 			"getAddonPaths": onMain(self._getAddonPaths),
 		}
@@ -495,8 +495,14 @@ class DevTools:
 		result["nvdaVersion"] = versionInfo.version
 		return result
 
-	def _captureControl(self, params: dict[str, Any]) -> dict[str, Any]:
-		if not config.conf[CONFIG_SECTION]["allowScreenCapture"]:
+	def _captureControlEntry(self, params: dict[str, Any]) -> dict[str, Any]:
+		self._actions.ensureUnlocked()
+		# A helper through MCP Access asks the person being helped, who may answer while this thread waits.
+		viaAccess = self._actions.ensureAccessPicturesAllowed(params)
+		return wxCallOnMain(self._captureControl, params, viaAccess)
+
+	def _captureControl(self, params: dict[str, Any], viaAccess: bool = False) -> dict[str, Any]:
+		if not viaAccess and not config.conf[CONFIG_SECTION]["allowScreenCapture"]:
 			raise BridgeError(
 				"screenCaptureDisabled",
 				"Taking pictures of the screen is turned off. Ask the user to check "

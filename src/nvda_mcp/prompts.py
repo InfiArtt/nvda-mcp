@@ -157,3 +157,21 @@ and its version, Windows, and NVDA's version; numbered steps to reproduce; what 
 should say; who it blocks and how badly; the WCAG success criterion; and a suggested fix in the \
 application's code. Leave out private content you saw on the screen. Show the report to the user and let \
 them send it: never post it, email it or file it yourself. {COMMON}"""
+
+
+def help_someone(code: str, problem: str | None) -> str:
+    about = f' They need help with: "{problem}".' if problem else ""
+    return f"""Help someone through MCP Access with the code they sent: {code}{about}
+
+1. Connect with nvda_access_connect and this code. NVDA on their computer asks them to allow it; tell the user \
+you are waiting for that answer. If the code was used already or expired, ask for a new one.
+2. Once connected, every NVDA tool works on their computer, not the user's. Start with nvda_get_status, \
+nvda_get_focus and nvda_get_object_tree to see where they are, and nvda_get_speech_history for what they heard.
+3. Prefer reading and explaining, so they learn and stay in control. Before pressing keys, typing or taking a \
+picture of their screen, say what you will do and why: NVDA asks them the first time in the session, and they \
+hear every key. If they decline, guide them to do it themselves instead.
+4. Never ask for passwords, codes or other secrets, and do not read private content aloud to the user unless \
+it is needed for the help.
+5. When done, or when they want to stop, call nvda_access_disconnect.
+
+Always make clear whose computer you are describing. {COMMON}"""

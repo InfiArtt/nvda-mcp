@@ -17,10 +17,12 @@ install them together.
   - End-to-end encrypted (X25519 and AES-256-GCM, keys made from the code and fresh random keys); the relay,
     run by InfiArtt at `wss://infiartt.com/mcp-access/v1`, only forwards data it cannot read.
     Strict TLS 1.3 to the relay.
-  - NVDA asks before a helper connects, and again before their first key press of each session, even if key
-    presses are off in the settings. *Never let MCP Access helpers press keys* refuses them altogether.
-  - Reloading add-ons, running NVDA commands, NVDA's log and settings, web pages' HTML and pictures of the
-    screen are never available through MCP Access. Connections and actions are written to the action log.
+  - NVDA asks before a helper connects, and again before their first key press and their first picture of the
+    screen in each session, even if those are off in the settings. *Never let MCP Access helpers press keys* and
+    *Never let MCP Access helpers take pictures of the screen* refuse them altogether.
+  - Reloading add-ons, running NVDA commands, NVDA's log and settings, and web pages' HTML are never available
+    through MCP Access. Connections and actions are written to the action log.
+  - The ready-made prompt `help_someone` connects with the code the person sent and helps them safely.
   - NVDA says when a helper connects and why sharing ended, in your language.
 
 - **Set up now**, in NVDA's Settings, NVDA MCP category: sets up the chosen assistant without editing files

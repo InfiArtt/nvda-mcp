@@ -897,6 +897,9 @@ async def test_prompts_are_listed_and_only_name_tools_that_exist():
             "report_problem": await client.get_prompt(
                 "report_problem", {"problem": "the Send button is silent"}
             ),
+            "help_someone": await client.get_prompt(
+                "help_someone", {"code": "K7Q4-9XMC-4TRW-PH3N-AD6F", "problem": "WhatsApp is silent"}
+            ),
         }
     assert set(listed) == set(texts)
     assert [argument.required for argument in listed["build_addon"].arguments] == [True]
@@ -907,6 +910,9 @@ async def test_prompts_are_listed_and_only_name_tools_that_exist():
     assert "Audit the accessibility of Notepad" in texts["audit_accessibility"].messages[0].content.text
     assert "will: announce new messages" in texts["build_addon"].messages[0].content.text
     assert "nvda_lookup_api" in texts["build_addon"].messages[0].content.text
+    helping = texts["help_someone"].messages[0].content.text
+    assert "K7Q4-9XMC-4TRW-PH3N-AD6F" in helping and "nvda_access_connect" in helping
+    assert "Never ask for passwords" in helping and "nvda_access_disconnect" in helping
     make = texts["make_accessible"].messages[0].content.text
     assert make.startswith("Make Proton VPN usable with NVDA") and '"NVDA only says button"' in make
     assert "nvda_get_addon_paths" in make and "never change it for them" in make

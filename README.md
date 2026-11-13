@@ -126,6 +126,7 @@ In NVDA's Settings, **NVDA MCP** category:
   to compare what a control looks like with what NVDA says for it. It works with Screen Curtain on.
 - **Number of spoken messages to remember** (500 by default).
 - **Never let MCP Access helpers press keys** (off by default; NVDA asks you once per session instead).
+- **Never let MCP Access helpers take pictures of the screen** (off by default; NVDA asks you once per session).
 - **MCP Access relay address** (`wss://infiartt.com/mcp-access/v1` by default).
 
 Commands in Input Gestures, NVDA MCP category (no keys assigned by default):
@@ -161,12 +162,15 @@ or subscription.
    for example by message. The code works once, for 10 minutes.
 3. When your helper connects, NVDA asks whether to let them see this computer, with **No** focused.
    It says the name they gave and a short session check you can compare with them.
-4. If they want to press keys, NVDA asks you again, once for this session. You hear every key.
+4. If they want to press keys, or take pictures of your screen to see what something looks like, NVDA asks you
+   again, once for each of these in this session. You hear every key.
 5. Use *Stops sharing this computer through MCP Access* at any time. Sharing also ends after two hours.
 
-**To help someone:** ask your assistant to connect with the code they sent, for example
-"help my friend with code K7Q4-9XMC-4TRW-PH3N-AD6F". It uses `nvda_access_connect`; every NVDA tool then works
-on their computer until `nvda_access_disconnect`.
+**To help someone:** paste the code they sent into your assistant, for example
+"help my friend, the code is K7Q4-9XMC-4TRW-PH3N-AD6F". Your assistant connects with `nvda_access_connect`;
+every NVDA tool then works on their computer until `nvda_access_disconnect`. Or choose the ready-made prompt
+`help_someone` and paste the code: it also tells the assistant to say before it acts, never to ask for
+passwords, and to disconnect when done. The code is safe to paste: it works once and expires after 10 minutes.
 
 How it is protected:
 
@@ -176,10 +180,11 @@ How it is protected:
   a session cannot unlock it.
 - **Strict TLS 1.3** to the relay, with its certificate always checked.
 - **The code works once**, expires after 10 minutes, and the relay limits how often codes can be tried.
-- **You allow the helper first**, and again before their first key press of each session, even if key presses are
-  off in NVDA MCP's settings. Check *Never let MCP Access helpers press keys* to refuse them altogether.
+- **You allow the helper first**, and again before their first key press and their first picture of the screen
+  in each session, even if those are off in NVDA MCP's settings. Check *Never let MCP Access helpers press keys*
+  or *Never let MCP Access helpers take pictures of the screen* to refuse them altogether.
 - **Some tools never work through MCP Access:** reloading add-ons, running NVDA commands, NVDA's log and
-  settings, reading web pages' HTML, and pictures of the screen.
+  settings, and reading web pages' HTML.
 - **Every connection and action is written** to the action log on your computer.
 - Never tell a helper a password, and close private windows before you share.
 
@@ -267,8 +272,9 @@ For developers of add-ons and accessible applications:
 Ready-made prompts walk the assistant through common tasks with these tools, in the right order:
 
 - For everyone: `explain_screen` (where am I and what can I do here), `make_accessible` (find what stops NVDA
-  in an application, write a small add-on that fixes it, test it and package it) and `report_problem`
-  (write a bug report for the application's developer).
+  in an application, write a small add-on that fixes it, test it and package it), `report_problem`
+  (write a bug report for the application's developer) and `help_someone` (help someone through MCP Access
+  with the code they sent).
 - For developers: `audit_accessibility`, `build_addon`, `why_silent` and `check_labels`.
 
 Clients that support MCP prompts offer them as commands; in Claude Code, for example, type

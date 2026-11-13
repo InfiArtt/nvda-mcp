@@ -135,6 +135,8 @@ Di Pengaturan NVDA, kategori **NVDA MCP**:
   membandingkan tampilan sebuah kontrol dengan apa yang diucapkan NVDA. Tetap berfungsi saat Tirai Layar menyala.
 - **Jumlah ucapan yang diingat** (500 secara bawaan).
 - **Jangan pernah izinkan penolong MCP Access menekan tombol** (mati secara bawaan; NVDA bertanya sekali per sesi).
+- **Jangan pernah izinkan penolong MCP Access mengambil gambar layar** (mati secara bawaan; NVDA bertanya sekali
+  per sesi).
 - **Alamat relay MCP Access** (`wss://infiartt.com/mcp-access/v1` secara bawaan).
 
 Perintah di Gestur Masukan, kategori NVDA MCP (tanpa tombol bawaan):
@@ -170,12 +172,16 @@ tanpa asisten AI, akun, atau langganan.
    misalnya lewat pesan. Kode hanya bisa dipakai sekali, selama 10 menit.
 3. Saat penolong tersambung, NVDA bertanya apakah mereka boleh melihat komputer ini, dengan **Tidak** terfokus.
    NVDA menyebut nama yang mereka berikan dan kode sesi singkat yang bisa Anda cocokkan dengan mereka.
-4. Kalau mereka ingin menekan tombol, NVDA bertanya lagi, sekali untuk sesi ini. Anda mendengar setiap tombol.
+4. Kalau mereka ingin menekan tombol, atau mengambil gambar layar untuk melihat tampilan sesuatu, NVDA bertanya
+   lagi, sekali untuk masing-masing di sesi ini. Anda mendengar setiap tombol.
 5. Pakai *Berhenti membagikan komputer ini lewat MCP Access* kapan saja. Berbagi juga berakhir setelah dua jam.
 
-**Untuk menolong orang lain:** minta asisten Anda tersambung dengan kode yang mereka kirim, misalnya
-"bantu temanku dengan kode K7Q4-9XMC-4TRW-PH3N-AD6F". Asisten memakai `nvda_access_connect`, lalu semua alat
-NVDA bekerja di komputer mereka sampai `nvda_access_disconnect`.
+**Untuk menolong orang lain:** tempel kode yang mereka kirim ke asisten Anda, misalnya
+"bantu temanku, kodenya K7Q4-9XMC-4TRW-PH3N-AD6F". Asisten tersambung dengan `nvda_access_connect`, lalu semua
+alat NVDA bekerja di komputer mereka sampai `nvda_access_disconnect`. Atau pilih prompt siap pakai
+`help_someone` dan tempel kodenya: prompt itu juga meminta asisten bilang dulu sebelum bertindak, tidak pernah
+meminta kata sandi, dan memutus sambungan setelah selesai. Kode aman ditempel: hanya sekali pakai dan kedaluwarsa
+setelah 10 menit.
 
 Cara perlindungannya:
 
@@ -185,11 +191,12 @@ Cara perlindungannya:
   Kode yang bocor setelah sesi selesai tidak bisa membuka sesi itu.
 - **TLS 1.3 yang ketat** ke relay, dengan sertifikat yang selalu diperiksa.
 - **Kode hanya sekali pakai**, kedaluwarsa setelah 10 menit, dan relay membatasi seberapa sering kode boleh dicoba.
-- **Anda mengizinkan penolong dulu**, lalu sekali lagi sebelum mereka menekan tombol pertama di setiap sesi,
-  walaupun penekanan tombol dimatikan di pengaturan NVDA MCP. Centang *Jangan pernah izinkan penolong MCP Access
-  menekan tombol* untuk menolak sama sekali.
+- **Anda mengizinkan penolong dulu**, lalu sekali lagi sebelum tombol pertama yang mereka tekan dan gambar layar
+  pertama yang mereka ambil di setiap sesi, walaupun keduanya dimatikan di pengaturan NVDA MCP. Centang
+  *Jangan pernah izinkan penolong MCP Access menekan tombol* atau *Jangan pernah izinkan penolong MCP Access
+  mengambil gambar layar* untuk menolak sama sekali.
 - **Beberapa alat tidak pernah bisa dipakai lewat MCP Access:** memuat ulang add-on, menjalankan perintah NVDA,
-  log dan pengaturan NVDA, membaca HTML halaman web, dan gambar layar.
+  log dan pengaturan NVDA, dan membaca HTML halaman web.
 - **Setiap sambungan dan aksi dicatat** di catatan aksi komputer Anda.
 - Jangan pernah memberi tahu kata sandi kepada penolong, dan tutup jendela pribadi sebelum berbagi.
 
@@ -231,7 +238,8 @@ yang tepat:
 
 - Untuk semua orang: `explain_screen` (saya di mana dan apa yang bisa saya lakukan di sini), `make_accessible`
   (mencari apa yang menghalangi NVDA di sebuah aplikasi, menulis add-on kecil untuk memperbaikinya, mengujinya,
-  lalu mengemasnya) dan `report_problem` (menulis laporan bug untuk pembuat aplikasi).
+  lalu mengemasnya), `report_problem` (menulis laporan bug untuk pembuat aplikasi) dan `help_someone`
+  (menolong orang lewat MCP Access dengan kode yang mereka kirim).
 - Untuk pengembang: `audit_accessibility`, `build_addon`, `why_silent` dan `check_labels`.
 
 Klien yang mendukung prompt MCP menampilkannya sebagai perintah; di Claude Code, misalnya, ketik

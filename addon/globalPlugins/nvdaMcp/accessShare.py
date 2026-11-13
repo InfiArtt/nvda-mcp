@@ -40,9 +40,9 @@ MAX_SESSION_SECONDS = 2 * 60 * 60
 CONNECT_TIMEOUT_SECONDS = 15
 MAX_FRAME_BYTES = 9 * 1024 * 1024
 
-# What a helper may ask for. Reading and, if the user allows key presses in NVDA's settings and answers yes,
-# acting. Left out: reloading or running add-on code, NVDA's log and settings, the browser's remote debugging
-# and pictures of the screen, which reach beyond what NVDA says.
+# What a helper may ask for: reading, and, after the user says yes for the session, pressing keys and taking
+# pictures of the screen. Left out: reloading or running add-on code, NVDA's log and settings, and the browser's
+# remote debugging, which reach beyond what NVDA says.
 ALLOWED_METHODS = frozenset(
 	{
 		"getStatus",
@@ -74,6 +74,7 @@ ALLOWED_METHODS = frozenset(
 		"recognizeText",
 		"traceEvents",
 		"getOutput",
+		"captureControl",
 	}
 )
 
