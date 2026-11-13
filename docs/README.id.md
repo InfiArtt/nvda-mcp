@@ -2,10 +2,11 @@
 
 NVDA MCP menghubungkan asisten AI dengan pembaca layar [NVDA](https://www.nvaccess.org) melalui
 [Model Context Protocol](https://modelcontextprotocol.io) (MCP).
-Asisten bekerja dari apa yang diketahui dan diucapkan NVDA, bertindak lewat NVDA, dan mendengar hasilnya. Karena
-itu asisten bisa mengerjakan yang paling dibutuhkan pengguna pembaca layar: membuat aplikasi yang tidak bisa
-dipakai dengan NVDA menjadi bisa dipakai, mencari tahu mengapa NVDA diam, dan membantu orang lain dari jauh.
-Anda mendengar setiap langkahnya, dan kendali tetap di tangan Anda.
+Asisten bekerja dari apa yang diketahui dan diucapkan NVDA, bertindak lewat NVDA dengan keyboard dan mouse, dan
+mendengar hasilnya. Karena itu asisten bisa mengerjakan yang paling dibutuhkan pengguna pembaca layar: membuat
+aplikasi yang tidak bisa dipakai dengan NVDA menjadi bisa dipakai, menjangkau yang tidak terjangkau keyboard,
+mencari tahu mengapa NVDA diam, dan membantu orang lain dari jauh dengan MCP Access. Anda mendengar setiap
+langkahnya, dan kendali tetap di tangan Anda.
 
 ## Mengapa add-on ini ada
 
@@ -46,6 +47,9 @@ Untuk pengguna NVDA:
   lewat NVDA Anda, sementara Anda tetap memegang kendali dan mendengar setiap langkahnya.
 - **Membaca yang tidak bisa dibaca NVDA.** Saat sebuah aplikasi hanya terbaca "panel", asisten bisa membaca
   teks di layar dengan pengenalan teks Windows, seperti NVDA+R.
+- **Menjangkau yang tidak terjangkau keyboard.** Tombol dan kenop yang digambar di kanvas, seperti di banyak
+  plugin audio, game, dan installer: asisten menemukannya lalu mengeklik, men-scroll, atau menyeret dengan mouse,
+  dan memberi tahu apa yang terjadi.
 - **Melewati aplikasi yang membingungkan.** Tanyakan Anda sedang di mana, apa isi sebuah jendela, di mana sebuah
   kontrol, atau mengapa sebuah tombol tidak bernama, dan dapatkan jawaban berdasarkan apa yang benar-benar
   dilihat NVDA, lengkap dengan tombol yang perlu ditekan.
@@ -128,10 +132,80 @@ claude mcp add --scope user nvda -- nvda-mcp
 Pakai versi yang sama dengan add-on, dan perbarui keduanya bersamaan. Dengan pip biasa, jalankan
 `python -m nvda_mcp` jika perintah `nvda-mcp` tidak ditemukan.
 
+## MCP Access: bantuan dari jauh
+
+**Akses awal (early access).** MCP Access masih baru: untuk sekarang gratis selagi kami mempelajari cara orang
+memakainya, dan bisa berubah. Ceritakan pengalaman Anda di [GitHub issues](https://github.com/InfiArtt/nvda-mcp/issues).
+
+MCP Access membuat orang yang Anda percaya bisa membantu dari komputernya sendiri, dengan asisten AI-nya yang
+bekerja lewat NVDA **Anda**. Asisten mereka melihat apa yang dilihat NVDA di komputer Anda, mengobrol dengan Anda,
+dan, kalau Anda izinkan, menekan tombol dan memakai mouse di sana. Anda mendengar semua yang terjadi. Orang yang
+dibantu cukup punya NVDA dan add-on ini: tanpa asisten AI, akun, atau langganan.
+
+### Meminta bantuan
+
+1. Di Gestur Masukan, kategori NVDA MCP, beri tombol untuk *Membagikan komputer ini ke penolong lewat MCP Access*
+   dan *Membuka jendela MCP Access, untuk mengobrol dengan penolong*.
+2. Tekan yang pertama. NVDA menyalin kode seperti `K7Q4-9XMC-4TRW-PH3N-AD6F` ke clipboard. Kirim ke penolong
+   Anda, misalnya lewat pesan. Kode hanya bisa dipakai sekali, selama 10 menit.
+3. Saat penolong tersambung, NVDA bertanya apakah mereka boleh melihat komputer ini, dengan **Tidak** terfokus.
+   NVDA menyebut nama yang mereka berikan, misalnya "Rafli (AI assistant)", dan kode sesi singkat yang bisa Anda
+   cocokkan dengan mereka.
+4. Kalau asisten mereka ingin menekan tombol, memakai mouse, atau mengambil gambar layar, NVDA bertanya lagi,
+   sekali untuk tombol dan mouse dan sekali untuk gambar di sesi ini. Anda mendengar setiap tombol.
+5. Mengobrol dengan mereka di jendela MCP Access: percakapan Anda, kolom untuk membalas (Enter mengirim), dan
+   tombol untuk berhenti berbagi. Pesan dari mereka didahului bunyi dan diucapkan sebagai pesan dari mereka,
+   walaupun jendelanya tertutup. Escape menutup jendela; berbagi tetap berjalan.
+6. Berhenti berbagi kapan saja, dengan tombol di jendela itu atau *Berhenti membagikan komputer ini lewat MCP
+   Access*. Berbagi juga berakhir setelah dua jam.
+
+### Menolong orang lain
+
+Tempel kode yang mereka kirim ke asisten Anda, misalnya "bantu temanku, kodenya K7Q4-9XMC-4TRW-PH3N-AD6F", atau
+pilih prompt siap pakai `help_someone`. Asisten tersambung dengan `nvda_access_connect`, lalu semua alat NVDA
+bekerja di komputer mereka sampai `nvda_access_disconnect`. Asisten mengobrol dengan mereka lewat
+`nvda_access_send_message` dan `nvda_access_messages`, dan mereka melihatnya sebagai "*nama Anda* (AI
+assistant)", jadi mereka selalu tahu yang berbicara adalah AI. Dalam mode *talk* (`nvda_access_set_mode`),
+asisten hanya membaca dan mengobrol, tanpa bertindak di komputer mereka. Kode aman ditempel: hanya sekali pakai
+dan kedaluwarsa setelah 10 menit.
+
+### Saat mereka menulis ketika Anda sedang pergi
+
+Asisten AI hanya bekerja selama punya giliran: saat Anda menulis kepadanya, atau selama ia sedang bekerja. Pesan
+dari orang yang Anda bantu tidak memulai giliran dengan sendirinya, jadi seberapa cepat pesan itu dijawab
+tergantung asisten Anda:
+
+- **Claude Code**, termasuk tab Code di aplikasi Claude: pesan mereka bisa membangunkannya. Setelah tersambung,
+  asisten memantau file kotak masuk kecil dengan pemantau latar belakang, dan menjawab setiap pesan begitu
+  datang, walaupun Anda sedang pergi. File itu ada di folder sementara milik Anda sendiri dan dihapus saat sesi
+  berakhir.
+- **Antigravity, Codex, Cursor, OpenCode, dan lainnya**: sepengetahuan kami, mereka tidak bisa dibangunkan dari
+  luar. Asisten menjawab selama sedang dalam giliran, dengan menunggu pesan berikutnya lewat
+  `nvda_access_messages`; pesan yang datang selagi asisten mengerjakan hal lain ikut muncul di hasil berikutnya.
+  Di antara giliran, pesan menunggu sampai Anda menulis lagi ke asisten Anda.
+
+### Cara perlindungannya
+
+- **Terenkripsi ujung ke ujung.** Kedua komputer menyepakati kunci dari kode dan kunci acak baru
+  (X25519 dan AES-256-GCM). Relay di antaranya, yang dijalankan InfiArtt di `wss://infiartt.com/mcp-access/v1`
+  di belakang Cloudflare, hanya meneruskan data yang tidak bisa dibacanya, dan tidak pernah melihat kodenya.
+  Kode yang bocor setelah sesi selesai tidak bisa membuka sesi itu.
+- **TLS 1.3 yang ketat** ke relay, dengan sertifikat yang selalu diperiksa.
+- **Kode hanya sekali pakai**, kedaluwarsa setelah 10 menit, dan relay membatasi seberapa sering kode boleh dicoba.
+- **Anda mengizinkan penolong dulu**, lalu sekali lagi sebelum tombol atau aksi mouse pertama dan gambar layar
+  pertama mereka di setiap sesi, walaupun keduanya dimatikan di pengaturan NVDA MCP. Centang *Jangan pernah izinkan
+  penolong MCP Access menekan tombol* atau *Jangan pernah izinkan penolong MCP Access mengambil gambar layar* untuk
+  menolak sama sekali.
+- **Beberapa alat tidak pernah bisa dipakai lewat MCP Access:** memuat ulang add-on, menjalankan perintah NVDA,
+  log dan pengaturan NVDA, dan membaca HTML halaman web.
+- **Kedua komputer perlu versi NVDA MCP yang sama**; kalau tidak, sambungan ditolak dengan pesan yang jelas.
+- **Setiap sambungan dan aksi dicatat** di catatan aksi komputer Anda.
+- Jangan pernah memberi tahu kata sandi kepada penolong, dan tutup jendela pribadi sebelum berbagi.
+
 ## Keamanan
 
 Membaca selalu diizinkan. Semua yang bertindak di komputer Anda **mati sampai Anda menyalakannya**:
-menekan tombol, mengetik, berganti jendela, mengaktifkan kontrol, berpindah di halaman web,
+menekan tombol, mengetik, memakai mouse, berganti jendela, mengaktifkan kontrol, berpindah di halaman web,
 menjalankan perintah NVDA, dan memuat ulang add-on.
 
 Di Pengaturan NVDA, kategori **NVDA MCP**:
@@ -149,7 +223,11 @@ Di Pengaturan NVDA, kategori **NVDA MCP**:
 - **Izinkan klien MCP mengambil gambar kontrol di layar** (mati secara bawaan), untuk pengembang yang ingin
   membandingkan tampilan sebuah kontrol dengan apa yang diucapkan NVDA. Tetap berfungsi saat Tirai Layar menyala.
 - **Jumlah ucapan yang diingat** (500 secara bawaan).
+
+Untuk MCP Access:
+
 - **Jangan pernah izinkan penolong MCP Access menekan tombol** (mati secara bawaan; NVDA bertanya sekali per sesi).
+  Ini juga berlaku untuk mouse.
 - **Jangan pernah izinkan penolong MCP Access mengambil gambar layar** (mati secara bawaan; NVDA bertanya sekali
   per sesi).
 - **Alamat relay MCP Access** (`wss://infiartt.com/mcp-access/v1` secara bawaan).
@@ -173,60 +251,6 @@ Cara koneksinya dilindungi:
 - Permintaan dari halaman web ditolak.
 - Tidak ada yang berjalan di layar aman (masuk Windows, UAC), dan permintaan ditolak saat Windows terkunci.
 - Pengaturannya disimpan di konfigurasi dasar NVDA, jadi profil konfigurasi tidak bisa menyalakan penekanan tombol.
-
-## MCP Access: bantuan dari jauh
-
-**Akses awal (early access).** MCP Access masih baru: untuk sekarang gratis selagi kami mempelajari cara orang
-memakainya, dan bisa berubah. Ceritakan pengalaman Anda di [GitHub issues](https://github.com/InfiArtt/nvda-mcp/issues).
-
-MCP Access membuat orang yang Anda percaya bisa membantu dari komputernya sendiri, dengan asisten AI-nya yang
-bekerja lewat NVDA **Anda**. Mereka melihat apa yang dilihat NVDA di komputer Anda, seolah asistennya duduk di
-sebelah Anda, dan Anda mendengar semua yang terjadi. Orang yang dibantu cukup punya NVDA dan add-on ini:
-tanpa asisten AI, akun, atau langganan.
-
-**Untuk meminta bantuan:**
-
-1. Di Gestur Masukan, kategori NVDA MCP, beri tombol untuk *Membagikan komputer ini ke penolong lewat MCP Access*.
-2. Tekan tombolnya. NVDA menyalin kode seperti `K7Q4-9XMC-4TRW-PH3N-AD6F` ke clipboard. Kirim ke penolong Anda,
-   misalnya lewat pesan. Kode hanya bisa dipakai sekali, selama 10 menit.
-3. Saat penolong tersambung, NVDA bertanya apakah mereka boleh melihat komputer ini, dengan **Tidak** terfokus.
-   NVDA menyebut nama yang mereka berikan dan kode sesi singkat yang bisa Anda cocokkan dengan mereka.
-4. Kalau mereka ingin menekan tombol, atau mengambil gambar layar untuk melihat tampilan sesuatu, NVDA bertanya
-   lagi, sekali untuk masing-masing di sesi ini. Anda mendengar setiap tombol.
-5. Mengobrol dengan penolong selagi mereka bekerja: pesan dari mereka didahului bunyi dan diucapkan sebagai pesan
-   dari mereka. *Membuka jendela MCP Access* menampilkan percakapan Anda, kolom untuk membalas (Enter mengirim),
-   dan tombol untuk berhenti berbagi. Escape menutup jendela; berbagi tetap berjalan.
-6. Pakai *Berhenti membagikan komputer ini lewat MCP Access* kapan saja. Berbagi juga berakhir setelah dua jam.
-
-**Untuk menolong orang lain:** tempel kode yang mereka kirim ke asisten Anda, misalnya
-"bantu temanku, kodenya K7Q4-9XMC-4TRW-PH3N-AD6F". Asisten tersambung dengan `nvda_access_connect`, lalu semua
-alat NVDA bekerja di komputer mereka sampai `nvda_access_disconnect`. Asisten bisa bertanya kepada mereka dengan
-`nvda_access_send_message` dan menunggu jawabannya dengan `nvda_access_messages`; pesan yang datang selagi
-asisten mengerjakan hal lain ikut muncul di hasil berikutnya. Orang yang dibantu melihat asisten Anda sebagai
-"*nama Anda* (AI assistant)", jadi mereka selalu tahu yang berbicara adalah AI. Di Claude Code, asisten bisa
-memantau file kotak masuk kecil supaya pesan mereka membangunkannya walaupun Anda sedang pergi; pilih mode talk
-(`nvda_access_set_mode`) kalau asisten saat itu hanya boleh membaca dan mengobrol, tidak bertindak.
-Atau pilih prompt siap pakai
-`help_someone` dan tempel kodenya: prompt itu juga meminta asisten bilang dulu sebelum bertindak, tidak pernah
-meminta kata sandi, dan memutus sambungan setelah selesai. Kode aman ditempel: hanya sekali pakai dan kedaluwarsa
-setelah 10 menit.
-
-Cara perlindungannya:
-
-- **Terenkripsi ujung ke ujung.** Kedua komputer menyepakati kunci dari kode dan kunci acak baru
-  (X25519 dan AES-256-GCM). Relay di antaranya, yang dijalankan InfiArtt di `wss://infiartt.com/mcp-access/v1`
-  di belakang Cloudflare, hanya meneruskan data yang tidak bisa dibacanya, dan tidak pernah melihat kodenya.
-  Kode yang bocor setelah sesi selesai tidak bisa membuka sesi itu.
-- **TLS 1.3 yang ketat** ke relay, dengan sertifikat yang selalu diperiksa.
-- **Kode hanya sekali pakai**, kedaluwarsa setelah 10 menit, dan relay membatasi seberapa sering kode boleh dicoba.
-- **Anda mengizinkan penolong dulu**, lalu sekali lagi sebelum tombol pertama yang mereka tekan dan gambar layar
-  pertama yang mereka ambil di setiap sesi, walaupun keduanya dimatikan di pengaturan NVDA MCP. Centang
-  *Jangan pernah izinkan penolong MCP Access menekan tombol* atau *Jangan pernah izinkan penolong MCP Access
-  mengambil gambar layar* untuk menolak sama sekali.
-- **Beberapa alat tidak pernah bisa dipakai lewat MCP Access:** memuat ulang add-on, menjalankan perintah NVDA,
-  log dan pengaturan NVDA, dan membaca HTML halaman web.
-- **Setiap sambungan dan aksi dicatat** di catatan aksi komputer Anda.
-- Jangan pernah memberi tahu kata sandi kepada penolong, dan tutup jendela pribadi sebelum berbagi.
 
 ## Privasi
 

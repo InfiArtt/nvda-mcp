@@ -218,7 +218,13 @@ async def test_messages_are_cleaned_and_rate_limited(relay):
 
 def test_a_message_needs_a_connected_helper():
     session = accessShare.ShareSession(
-        "ws://127.0.0.1:1/v1", lambda m, p: {}, lambda n, f: True, lambda e, d: None, "pc", "1.4.0", 8
+        "ws://127.0.0.1:1/v1",
+        lambda m, p: {},
+        lambda n, f: True,
+        lambda e, d: None,
+        "pc",
+        "1.4.0",
+        SUPPORTED_PROTOCOL_VERSION,
     )
     with pytest.raises(accessShare.AccessShareError, match="No helper"):
         session.sendMessage("hello")
@@ -293,3 +299,14 @@ async def test_the_inbox_goes_away_by_itself_when_they_stop_sharing(relay, monke
         await anyio.sleep(0.6)
         assert "ended" in last_line and not inbox.exists()
         await client.call_tool("nvda_access_disconnect", {})
+
+
+async def test_computers_with_different_versions_are_told_to_update(relay):
+    sharer = Sharer(relay.url)
+    # A computer still on the previous add-on, which knows neither messages nor the mouse.
+    sharer.session._protocolVersion = SUPPORTED_PROTOCOL_VERSION - 1
+    sharer.session.start()
+    _event, details = await sharer.next_event()
+    async with Client(server.mcp) as client:
+        result = await client.call_tool("nvda_access_connect", {"code": details["code"], "relay": relay.url})
+    assert result.is_error and "Both need the same version" in text_of(result)

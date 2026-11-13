@@ -2,9 +2,10 @@
 
 NVDA MCP connects AI assistants to the [NVDA](https://www.nvaccess.org) screen reader through the
 [Model Context Protocol](https://modelcontextprotocol.io) (MCP).
-The assistant works from what NVDA knows and says, acts through NVDA, and hears the result. So it can do what
-screen reader users need most: make an application that does not work with NVDA usable, find out why NVDA is
-silent, and help someone from far away. You hear every step, and you stay in control.
+The assistant works from what NVDA knows and says, acts through NVDA with the keyboard and the mouse, and hears
+the result. So it can do what screen reader users need most: make an application that does not work with NVDA
+usable, reach what the keyboard cannot, find out why NVDA is silent, and help someone from far away with MCP
+Access. You hear every step, and you stay in control.
 
 ## Why it exists
 
@@ -42,6 +43,8 @@ For people who use NVDA:
   working through your NVDA, while you stay in control and hear every step.
 - **Reading what NVDA cannot.** When an application shows NVDA nothing but a "pane", the assistant can read
   the text on the screen with Windows' text recognition, as NVDA+R does.
+- **Reaching what the keyboard cannot.** Buttons and knobs drawn on a canvas, as in many audio plugins, games and
+  installers: the assistant finds them and clicks, scrolls or drags with the mouse, and tells you what happened.
 - **Getting through confusing applications.** Ask where you are, what a window holds, where a control is or why
   a button has no name, and get an answer based on what NVDA actually sees, with the keys to press.
 - **Reporting a problem.** The assistant gathers the facts and writes a bug report for the application's
@@ -75,7 +78,8 @@ For developers and testers:
 ## What you need
 
 - Windows with NVDA 2025.1 or later.
-- An AI assistant that supports MCP, such as Claude Code, Claude Desktop, Codex CLI, Cursor or VS Code.
+- An AI assistant that supports MCP, such as Claude Code, Claude Desktop, Antigravity, Codex CLI, Cursor or
+  VS Code.
 - [uv](https://docs.astral.sh/uv/), which downloads and runs the NVDA MCP server for you.
   If you already have Python 3.11 or later, you can use pip or pipx instead.
 
@@ -118,10 +122,76 @@ claude mcp add --scope user nvda -- nvda-mcp
 Use the same version as the add-on, and upgrade both together. With plain pip, run `python -m nvda_mcp` if the
 `nvda-mcp` command is not found.
 
+## MCP Access: help from far away
+
+**Early access.** MCP Access is new: it is free for now while we learn how people use it, and it may change.
+Tell us how it goes in the [GitHub issues](https://github.com/InfiArtt/nvda-mcp/issues).
+
+MCP Access lets someone you trust help you from their own computer, with their AI assistant working through
+**your** NVDA. Their assistant sees what NVDA sees on your computer, talks with you, and, if you allow it, presses
+keys and uses the mouse there. You hear everything that happens. The person being helped needs only NVDA and this
+add-on: no AI assistant, account or subscription.
+
+### Getting help
+
+1. In Input Gestures, NVDA MCP category, give keys to *Shares this computer with a helper through MCP Access*
+   and *Opens the MCP Access window, to talk with your helper*.
+2. Press the first. NVDA copies a code such as `K7Q4-9XMC-4TRW-PH3N-AD6F` to the clipboard. Send it to your helper,
+   for example by message. The code works once, for 10 minutes.
+3. When your helper connects, NVDA asks whether to let them see this computer, with **No** focused. It says the
+   name they gave, such as "Rafli (AI assistant)", and a short session check you can compare with them.
+4. If their assistant wants to press keys, use the mouse, or take pictures of your screen, NVDA asks you again,
+   once for keys and the mouse and once for pictures in this session. You hear every key.
+5. Talk with them in the MCP Access window: your conversation, a field to answer (Enter sends) and a button to
+   stop sharing. Their messages play a sound and are spoken as messages from them, even with the window closed.
+   Escape closes the window; sharing goes on.
+6. Stop sharing at any time, with the window's button or *Stops sharing this computer through MCP Access*.
+   Sharing also ends after two hours.
+
+### Helping someone
+
+Paste the code they sent into your assistant, for example "help my friend, the code is
+K7Q4-9XMC-4TRW-PH3N-AD6F", or choose the ready-made prompt `help_someone`. Your assistant connects with
+`nvda_access_connect`, and every NVDA tool then works on their computer until `nvda_access_disconnect`.
+It talks with them with `nvda_access_send_message` and `nvda_access_messages`, and they see it as
+"*your name* (AI assistant)", so they always know an AI is talking to them. In *talk* mode
+(`nvda_access_set_mode`) it only reads and talks, without acting on their computer.
+The code is safe to paste: it works once and expires after 10 minutes.
+
+### When they write while you are away
+
+An AI assistant works only while it has a turn: when you write to it, or while it is working. A message from the
+person you help does not start a turn by itself, so how soon it is answered depends on your assistant:
+
+- **Claude Code**, including the Code tab of the Claude app: their messages can wake it. After connecting, it
+  watches a small inbox file with a background monitor, and answers each message as it arrives, even when you
+  are away. The file is in your own temporary folder and is deleted when the session ends.
+- **Antigravity, Codex, Cursor, OpenCode and others**: they have no way, that we know of, to be woken from
+  outside. Their assistant answers while it is in a turn, by waiting for the next message with
+  `nvda_access_messages`; a message that arrives while it does something else comes with its next result.
+  Between turns, a message waits until you write to your assistant again.
+
+### How it is protected
+
+- **End-to-end encrypted.** The two computers agree on keys made from the code and fresh random keys
+  (X25519 and AES-256-GCM). The relay in between, which InfiArtt runs at `wss://infiartt.com/mcp-access/v1`
+  behind Cloudflare, only forwards data it cannot read, and never sees the code. A code that leaks after
+  a session cannot unlock it.
+- **Strict TLS 1.3** to the relay, with its certificate always checked.
+- **The code works once**, expires after 10 minutes, and the relay limits how often codes can be tried.
+- **You allow the helper first**, and again before their first key press or mouse action and their first picture
+  of the screen in each session, even if those are off in NVDA MCP's settings. Check *Never let MCP Access
+  helpers press keys* or *Never let MCP Access helpers take pictures of the screen* to refuse them altogether.
+- **Some tools never work through MCP Access:** reloading add-ons, running NVDA commands, NVDA's log and
+  settings, and reading web pages' HTML.
+- **Both computers need the same version** of NVDA MCP; otherwise the connection is refused, saying so.
+- **Every connection and action is written** to the action log on your computer.
+- Never tell a helper a password, and close private windows before you share.
+
 ## Safety
 
 Reading is always allowed. Everything that acts on your computer is **off until you turn it on**:
-pressing keys, typing, switching windows, activating controls, moving through web pages,
+pressing keys, typing, using the mouse, switching windows, activating controls, moving through web pages,
 running NVDA commands and reloading add-ons.
 
 In NVDA's Settings, **NVDA MCP** category:
@@ -138,7 +208,11 @@ In NVDA's Settings, **NVDA MCP** category:
 - **Let MCP clients take pictures of controls on the screen** (off by default), for developers who want
   to compare what a control looks like with what NVDA says for it. It works with Screen Curtain on.
 - **Number of spoken messages to remember** (500 by default).
+
+For MCP Access:
+
 - **Never let MCP Access helpers press keys** (off by default; NVDA asks you once per session instead).
+  This covers the mouse too.
 - **Never let MCP Access helpers take pictures of the screen** (off by default; NVDA asks you once per session).
 - **MCP Access relay address** (`wss://infiartt.com/mcp-access/v1` by default).
 
@@ -161,58 +235,6 @@ How the connection is protected:
 - Requests from web pages are refused.
 - Nothing works on secure screens (sign-in, UAC), and requests are refused while Windows is locked.
 - The settings live in NVDA's base configuration, so a configuration profile cannot turn key presses on.
-
-## MCP Access: help from far away
-
-**Early access.** MCP Access is new: it is free for now while we learn how people use it, and it may change.
-Tell us how it goes in the [GitHub issues](https://github.com/InfiArtt/nvda-mcp/issues).
-
-MCP Access lets someone you trust help you from their own computer, with their AI assistant working through
-**your** NVDA. They see what NVDA sees on your computer, as if their assistant were next to you, and you hear
-everything that happens. The person being helped needs only NVDA and this add-on: no AI assistant, account
-or subscription.
-
-**To get help:**
-
-1. In Input Gestures, NVDA MCP category, give a key to *Shares this computer with a helper through MCP Access*.
-2. Press it. NVDA copies a code such as `K7Q4-9XMC-4TRW-PH3N-AD6F` to the clipboard. Send it to your helper,
-   for example by message. The code works once, for 10 minutes.
-3. When your helper connects, NVDA asks whether to let them see this computer, with **No** focused.
-   It says the name they gave and a short session check you can compare with them.
-4. If they want to press keys, or take pictures of your screen to see what something looks like, NVDA asks you
-   again, once for each of these in this session. You hear every key.
-5. Talk with your helper while they work: their messages play a sound and are spoken as messages from them.
-   *Opens the MCP Access window* shows your conversation, a field to answer (Enter sends), and a button to stop
-   sharing. Escape closes the window; sharing goes on.
-6. Use *Stops sharing this computer through MCP Access* at any time. Sharing also ends after two hours.
-
-**To help someone:** paste the code they sent into your assistant, for example
-"help my friend, the code is K7Q4-9XMC-4TRW-PH3N-AD6F". Your assistant connects with `nvda_access_connect`;
-every NVDA tool then works on their computer until `nvda_access_disconnect`. Your assistant can ask them
-questions with `nvda_access_send_message` and wait for their answer with `nvda_access_messages`; a message
-that arrives while it does something else comes with its next result. The person sees your assistant as
-"*your name* (AI assistant)", so they always know an AI is talking to them. In Claude Code, your assistant can
-watch a small inbox file so that their messages wake it even when you are away; choose talk mode
-(`nvda_access_set_mode`) if it should then only read and talk, not act.
-Or choose the ready-made prompt
-`help_someone` and paste the code: it also tells the assistant to say before it acts, never to ask for
-passwords, and to disconnect when done. The code is safe to paste: it works once and expires after 10 minutes.
-
-How it is protected:
-
-- **End-to-end encrypted.** The two computers agree on keys made from the code and fresh random keys
-  (X25519 and AES-256-GCM). The relay in between, which InfiArtt runs at `wss://infiartt.com/mcp-access/v1`
-  behind Cloudflare, only forwards data it cannot read, and never sees the code. A code that leaks after
-  a session cannot unlock it.
-- **Strict TLS 1.3** to the relay, with its certificate always checked.
-- **The code works once**, expires after 10 minutes, and the relay limits how often codes can be tried.
-- **You allow the helper first**, and again before their first key press and their first picture of the screen
-  in each session, even if those are off in NVDA MCP's settings. Check *Never let MCP Access helpers press keys*
-  or *Never let MCP Access helpers take pictures of the screen* to refuse them altogether.
-- **Some tools never work through MCP Access:** reloading add-ons, running NVDA commands, NVDA's log and
-  settings, and reading web pages' HTML.
-- **Every connection and action is written** to the action log on your computer.
-- Never tell a helper a password, and close private windows before you share.
 
 ## Privacy
 
@@ -244,7 +266,9 @@ It reads the window or control it is asked about, whatever is shown there, and e
 
 ## Tools
 
-The assistant sees these tools:
+The assistant sees these tools.
+
+Reading:
 
 | Tool | What it does |
 |---|---|
@@ -254,32 +278,47 @@ The assistant sees these tools:
 | `nvda_get_object_tree` | The accessibility tree of the foreground window, focus, navigator, a found control or a window in the background; long lists are shortened |
 | `nvda_find_objects` | Find controls by name and/or role, in the foreground window, inside a found control, or in a window in the background |
 | `nvda_get_text` | Full text of a document, web page or edit field, plus the caret line; or only the lines containing some text |
+| `nvda_recognize_text` | Read the text on the screen in a window or control with Windows' text recognition (OCR), line by line, when NVDA cannot read it |
 | `nvda_get_speech_history` | What NVDA said, with ids for polling and a text filter |
 | `nvda_wait_for_speech` | Wait until NVDA says something, such as a chat reply |
 | `nvda_list_windows` | Open application windows, including ones that belong to another window, and ones on other virtual desktops if asked |
-| `nvda_speak` | Say something through NVDA's speech and braille |
+| `nvda_list_elements` | Headings, links, landmarks, form fields and more, like the Elements List |
+| `nvda_get_action_log` | The newest entries of the log of actions clients took |
+
+Acting with the keyboard (these need your permission):
+
+| Tool | What it does |
+|---|---|
 | `nvda_press_keys` | Press keys, optionally holding modifiers, then report what NVDA said and where focus went |
 | `nvda_type_text` | Type a line of text in any language, emoji included, without using the clipboard |
+| `nvda_activate_window` | Bring a window to the front by title or handle |
+| `nvda_focus_object` | Move focus to a control found with `nvda_find_objects` |
+| `nvda_activate_object` | Press, follow or toggle a control found with `nvda_find_objects` |
+| `nvda_set_value` | Experimental: give an edit field new text through the accessibility API, even in a background window |
+| `nvda_set_document_mode` | Switch between browse mode and focus mode in a web page, like NVDA+space |
+| `nvda_find_in_page` | Move the browse mode cursor to a match on the page, like NVDA's find command |
+| `nvda_move_to_element` | Move to, or activate, an element from `nvda_list_elements` |
+| `nvda_speak` | Say something through NVDA's speech and braille |
+| `nvda_audit_focus_order` | Tab through a window and report unlabeled controls, silent controls, duplicate names, keyboard traps |
+
+Acting with the mouse (these need your permission, like key presses):
+
+| Tool | What it does |
+|---|---|
 | `nvda_mouse_click` | Click, right-click or double-click a control, a point in it (such as a knob on a plugin's canvas), a window or the screen |
 | `nvda_mouse_scroll` | Turn the mouse wheel over a point, to scroll or turn a knob |
 | `nvda_mouse_hover` | Move the mouse over something, to show its tooltip, and say what is under it |
 | `nvda_mouse_drag` | Drag from one point to another, such as a fader drawn on a canvas |
-| `nvda_set_value` | Experimental: give an edit field new text through the accessibility API, even in a background window |
-| `nvda_activate_window` | Bring a window to the front by title or handle |
-| `nvda_focus_object` | Move focus to a control found with `nvda_find_objects` |
-| `nvda_activate_object` | Press, follow or toggle a control found with `nvda_find_objects` |
-| `nvda_set_document_mode` | Switch between browse mode and focus mode in a web page, like NVDA+space |
-| `nvda_find_in_page` | Move the browse mode cursor to a match on the page, like NVDA's find command |
-| `nvda_list_elements` | Headings, links, landmarks, form fields and more, like the Elements List |
-| `nvda_move_to_element` | Move to, or activate, an element from `nvda_list_elements` |
-| `nvda_get_action_log` | The newest entries of the log of actions clients took |
-| `nvda_audit_focus_order` | Tab through a window and report unlabeled controls, silent controls, duplicate names, keyboard traps |
+
+MCP Access, for the helper's assistant:
+
+| Tool | What it does |
+|---|---|
 | `nvda_access_connect` | Help someone through MCP Access: connect to their NVDA with the code they sent, after they allow it |
 | `nvda_access_send_message` | Say a message on the computer of the person you help; NVDA keeps it for them to hear again |
 | `nvda_access_messages` | Read the messages the person you help sent you, waiting for an answer if asked |
 | `nvda_access_set_mode` | Let your assistant act on their computer (after they allow it), or only read and talk |
 | `nvda_access_disconnect` | End the MCP Access session, so the tools work on this computer again |
-| `nvda_recognize_text` | Read the text on the screen in a window or control with Windows' text recognition (OCR), line by line, when NVDA cannot read it |
 
 For developers of add-ons and accessible applications:
 
