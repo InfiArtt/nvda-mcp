@@ -94,8 +94,12 @@ NVDA_2025_STANDARD_MODULES = {
     "itertools",
     "json",
     "os",
+    # queue, socket, ssl and urllib: NVDA 2025.1 imports them itself (Remote Access, updateCheck).
+    "queue",
     "re",
     "shutil",
+    "socket",
+    "ssl",
     "struct",
     "subprocess",
     "sys",
@@ -104,6 +108,7 @@ NVDA_2025_STANDARD_MODULES = {
     "time",
     "types",
     "typing",
+    "urllib",
     "webbrowser",
     "zlib",
 }

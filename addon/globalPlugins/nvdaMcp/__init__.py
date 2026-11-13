@@ -20,7 +20,8 @@ import globalPluginHandler
 import globalVars
 import ui
 import wx
-from gui import guiHelper, nvdaControls
+from gui import guiHelper, mainFrame, nvdaControls
+from gui.guiHelper import wxCallOnMain
 from gui.message import DefaultButtonSet, DialogType, MessageDialog, ReturnCode
 from gui.settingsDialogs import NVDASettingsDialog, SettingsPanel
 from logHandler import log
@@ -28,8 +29,9 @@ from scriptHandler import script
 from speech.extensions import pre_speech
 from speech.types import SpeechSequence
 
+from . import accessShare
 from .actionLog import ActionLog
-from .bridge import Bridge
+from .bridge import PROTOCOL_VERSION, Bridge
 from .configSpec import CONFIG_SECTION, CONFIG_SPEC
 from .contextText import MAX_LIST_ITEMS, contextText
 from .devTools import DevTools
@@ -152,6 +154,19 @@ class NvdaMcpSettingsPanel(SettingsPanel):
 			max=5000,
 			initial=sectionConfig["speechHistorySize"],
 		)
+		self.blockAccessControlCheckBox = helper.addItem(
+			# Translators: A checkbox in the NVDA MCP settings panel. Without it, a helper connected through
+			# MCP Access may ask to press keys, and NVDA asks the user once per session.
+			wx.CheckBox(self, label=_("&Never let MCP Access helpers press keys")),
+		)
+		self.blockAccessControlCheckBox.SetValue(sectionConfig["blockAccessControl"])
+		self.accessRelayEdit = helper.addLabeledControl(
+			# Translators: A text field in the NVDA MCP settings panel. MCP Access lets a helper's AI assistant
+			# work with this computer's NVDA from far away, through a relay server at this address.
+			_("MCP Access &relay address:"),
+			wx.TextCtrl,
+		)
+		self.accessRelayEdit.SetValue(sectionConfig["accessRelay"])
 		labels = _clientLabels()
 		self.clientChoice = helper.addLabeledControl(
 			# Translators: A list in the NVDA MCP settings panel, choosing the program to set up.
@@ -261,6 +276,8 @@ class NvdaMcpSettingsPanel(SettingsPanel):
 		sectionConfig["allowBrowserInspection"] = self.allowBrowserInspectionCheckBox.IsChecked()
 		sectionConfig["allowScreenCapture"] = self.allowScreenCaptureCheckBox.IsChecked()
 		sectionConfig["speechHistorySize"] = self.historySizeSpin.GetValue()
+		sectionConfig["blockAccessControl"] = self.blockAccessControlCheckBox.IsChecked()
+		sectionConfig["accessRelay"] = self.accessRelayEdit.GetValue().strip() or accessShare.DEFAULT_RELAY
 
 	def postSave(self) -> None:
 		if _plugin is not None:
@@ -275,6 +292,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		super().__init__()
 		global _plugin
 		self._bridge: Bridge | None = None
+		self._share: accessShare.ShareSession | None = None
 		if globalVars.appArgs.secure:
 			# Never expose the secure desktop (sign-in, UAC) to another process.
 			return
@@ -294,6 +312,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			pre_speech.unregister(self._onPreSpeech)
 			self._devTools.unregister()
 			NVDASettingsDialog.categoryClasses.remove(NvdaMcpSettingsPanel)
+			self._stopSharing()
 			self._stopBridge()
 			_plugin = None
 		super().terminate()
@@ -307,6 +326,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if sectionConfig["enabled"] and self._bridge is None:
 			self._startBridge()
 		elif not sectionConfig["enabled"]:
+			self._stopSharing()
 			self._stopBridge()
 
 	def _startBridge(self) -> None:
@@ -358,6 +378,88 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if api.copyToClip(contextText(status, focus, tree, speech, hiddenStates)):
 			# Translators: Reported after copying what NVDA sees, to paste into an AI chat.
 			ui.message(_("Copied what NVDA sees here. It can include private text from this window."))
+
+	@script(
+		# Translators: Describes a command in the Input Gestures dialog. MCP Access lets someone the user trusts
+		# help them from far away, with an AI assistant that works through this computer's NVDA.
+		description=_("Shares this computer with a helper through MCP Access, or says who is connected"),
+		category=SCRCAT_NVDA_MCP,
+	)
+	def script_shareComputer(self, gesture) -> None:
+		if not self._isRunning():
+			return
+		share = self._share
+		if share is not None and share.isRunning:
+			if share.helperName:
+				# Translators: Reported by the share command while a helper is connected.
+				ui.message(_("{helper} is connected through MCP Access").format(helper=share.helperName))
+			else:
+				# Translators: Reported by the share command while a code waits for a helper.
+				ui.message(_("Waiting for a helper. The code is {code}").format(code=_spokenCode(share.code)))
+			return
+		self._share = accessShare.ShareSession(
+			config.conf[CONFIG_SECTION]["accessRelay"],
+			self._bridge.dispatch,
+			self._approveHelper,
+			lambda event, details: wx.CallAfter(self._onShareEvent, event, details),
+			computerName=os.environ.get("COMPUTERNAME") or "NVDA",
+			addonVersion=_addonVersion(),
+			protocolVersion=PROTOCOL_VERSION,
+		)
+		# Translators: Reported while NVDA MCP connects to the MCP Access relay.
+		ui.message(_("Connecting to MCP Access..."))
+		self._share.start()
+
+	@script(
+		# Translators: Describes a command in the Input Gestures dialog.
+		description=_("Stops sharing this computer through MCP Access"),
+		category=SCRCAT_NVDA_MCP,
+	)
+	def script_stopSharing(self, gesture) -> None:
+		if self._share is None or not self._share.isRunning:
+			# Translators: Reported when the user stops sharing but nothing is shared.
+			ui.message(_("This computer is not being shared"))
+			return
+		self._stopSharing()
+
+	def _stopSharing(self) -> None:
+		if self._share is not None:
+			self._share.stop()
+
+	def _onShareEvent(self, event: str, details: dict) -> None:
+		"""What the sharing session reports, said to the user. Runs on the main thread."""
+		if event == "waiting":
+			api.copyToClip(details["code"])
+			ui.message(
+				# Translators: Reported after NVDA MCP made an MCP Access code. {minutes} is a number.
+				_(
+					"MCP Access code copied to the clipboard. Send it only to someone you trust: "
+					"whoever has it can ask to see this computer. It works for {minutes} minutes."
+				).format(minutes=details["minutes"]),
+			)
+		elif event == "connected":
+			self._logAccess("mcpAccessConnected", details["helper"])
+			ui.message(
+				# Translators: Reported when a helper connects through MCP Access.
+				_("{helper} is connected through MCP Access. Use the stop sharing command to end it.").format(
+					helper=details["helper"]
+				),
+			)
+		elif event == "ended":
+			if details.get("helper"):
+				self._logAccess("mcpAccessEnded", details["helper"], reason=details["reason"])
+			ui.message(_accessEndedMessage(details))
+
+	def _logAccess(self, action: str, helper: str, **details) -> None:
+		# Who connected is always logged, even with the action log turned off for MCP clients on this computer.
+		try:
+			self._actions._actionLog.record(action, None, helper=helper, **details)
+		except OSError:
+			log.error("NVDA MCP could not write its action log", exc_info=True)
+
+	def _approveHelper(self, helperName: str, fingerprint: str) -> bool:
+		"""Ask the user whether the helper may connect. Called from the sharing thread; waits for the answer."""
+		return wxCallOnMain(_askAccessApproval, helperName, fingerprint)
 
 	def _isRunning(self) -> bool:
 		if self._bridge is None:
@@ -412,3 +514,74 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ui.message(_("No actions have been logged yet"))
 			return
 		os.startfile(path)
+
+
+def _spokenCode(code: str) -> str:
+	"""The code with spaces between its characters, so speech reads it letter by letter."""
+	return ", ".join(" ".join(group) for group in code.split("-"))
+
+
+# The person being helped has this long to answer; the helper's server stops waiting soon after.
+ACCESS_APPROVAL_SECONDS = 110
+
+
+def _askAccessApproval(helperName: str, fingerprint: str) -> bool:
+	"""Ask, with No focused, whether a helper may see and use this computer through NVDA."""
+	# Translators: Title of the dialog asking whether to let a helper connect through MCP Access.
+	# {helper} is the name the helper's program gives itself; NVDA cannot verify it.
+	title = _("NVDA MCP: let {helper} see this computer?").format(helper=helperName)
+	dialog = MessageDialog(
+		mainFrame,
+		# Translators: Asks whether to let a helper connect through MCP Access.
+		# {helper} is the name the helper's program gives itself; {check} is a short code both sides see.
+		_(
+			"Someone with your MCP Access code, calling themselves {helper}, wants to see this computer through "
+			"NVDA, with an AI assistant: what is on the screen, what NVDA says, and the text of windows. "
+			"If they want to press keys, NVDA asks you first.\n\n"
+			"Allow this only if you asked this person for help. Never tell them a password. "
+			"Session check: {check}. You can stop sharing at any time.\n\n"
+			"Allow {helper} to connect?"
+		).format(helper=helperName, check=fingerprint),
+		title,
+		dialogType=DialogType.WARNING,
+		buttons=DefaultButtonSet.YES_NO,
+	)
+	dialog.setDefaultFocus(ReturnCode.NO)
+	dialog.setFallbackAction(ReturnCode.NO)
+	timer = wx.CallLater(ACCESS_APPROVAL_SECONDS * 1000, dialog.Close)
+	mainFrame.prePopup()
+	try:
+		answer = dialog.ShowModal()
+	finally:
+		timer.Stop()
+		mainFrame.postPopup()
+	return answer == ReturnCode.YES
+
+
+def _accessEndedMessage(details: dict) -> str:
+	"""What to say when an MCP Access session ends, in the user's language where the reason is known."""
+	helper = details.get("helper") or ""
+	kind = details.get("kind")
+	if kind == "stopped":
+		# Translators: Reported when the user stops sharing through MCP Access.
+		return _("MCP Access sharing stopped")
+	if kind == "helperLeft":
+		# Translators: Reported when the helper ends an MCP Access session. {helper} is their name.
+		return _("{helper} ended the MCP Access session").format(helper=helper)
+	if kind == "declined":
+		# Translators: Reported after the user answered No to a helper connecting through MCP Access.
+		return _("MCP Access: the helper was not allowed to connect")
+	if kind == "expired":
+		# Translators: Reported when nobody used an MCP Access code in time.
+		return _("The MCP Access code expired before anyone used it. Share again for a new code.")
+	if kind == "timeLimit":
+		# Translators: Reported when an MCP Access session reaches its time limit.
+		return _("MCP Access sharing ended after two hours. Share again if you still need help.")
+	if kind == "insecure":
+		# Translators: Reported when MCP Access stops because a message could not be verified.
+		return _("MCP Access stopped because the connection was not secure")
+	if kind == "relayClosed":
+		# Translators: Reported when the connection to the MCP Access relay is lost.
+		return _("MCP Access sharing ended: the connection to the relay was lost")
+	# Translators: Reported when sharing through MCP Access ends. {reason} says why, in English.
+	return _("MCP Access sharing ended. {reason}").format(reason=details.get("reason", ""))

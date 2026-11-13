@@ -10,6 +10,19 @@ install them together.
 
 ### Added
 
+- **MCP Access**: someone you trust helps you from their own computer, with their AI assistant working through
+  your NVDA. A command in Input Gestures shares this computer and copies a one-time code that works for
+  10 minutes; the helper's assistant connects with `nvda_access_connect`, and every NVDA tool then works on
+  your computer until `nvda_access_disconnect`. The person being helped needs no AI assistant.
+  - End-to-end encrypted (X25519 and AES-256-GCM, keys made from the code and fresh random keys); the relay,
+    run by InfiArtt at `wss://infiartt.com/mcp-access/v1`, only forwards data it cannot read.
+    Strict TLS 1.3 to the relay.
+  - NVDA asks before a helper connects, and again before their first key press of each session, even if key
+    presses are off in the settings. *Never let MCP Access helpers press keys* refuses them altogether.
+  - Reloading add-ons, running NVDA commands, NVDA's log and settings, web pages' HTML and pictures of the
+    screen are never available through MCP Access. Connections and actions are written to the action log.
+  - NVDA says when a helper connects and why sharing ended, in your language.
+
 - **Set up now**, in NVDA's Settings, NVDA MCP category: sets up the chosen assistant without editing files
   by hand. For Claude Desktop, Antigravity and Cursor it adds NVDA MCP to the assistant's settings file,
   keeping the rest of the file and a copy of the old one (`.bak`); for Claude Code and Codex CLI it runs their

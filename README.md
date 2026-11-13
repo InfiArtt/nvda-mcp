@@ -39,6 +39,8 @@ For people who use NVDA:
   developer, for you to send.
 - **Asking any AI, even without MCP.** One NVDA command copies what NVDA sees where you are, ready to paste
   into ChatGPT, Gemini or any chat.
+- **Getting help from far away.** With MCP Access, someone you trust helps you with their AI assistant,
+  working through your NVDA, while you stay in control and hear every step.
 
 For developers and testers:
 
@@ -123,6 +125,8 @@ In NVDA's Settings, **NVDA MCP** category:
 - **Let MCP clients take pictures of controls on the screen** (off by default), for developers who want
   to compare what a control looks like with what NVDA says for it. It works with Screen Curtain on.
 - **Number of spoken messages to remember** (500 by default).
+- **Never let MCP Access helpers press keys** (off by default; NVDA asks you once per session instead).
+- **MCP Access relay address** (`wss://infiartt.com/mcp-access/v1` by default).
 
 Commands in Input Gestures, NVDA MCP category (no keys assigned by default):
 
@@ -131,6 +135,8 @@ Commands in Input Gestures, NVDA MCP category (no keys assigned by default):
 - Open the log of actions MCP clients have taken.
 - Copy what NVDA sees here, to paste into a chat with any AI assistant: the application, the focused control,
   the controls in the window and what NVDA said last. It works without an MCP client.
+- Share this computer with a helper through MCP Access, or say who is connected.
+- Stop sharing this computer through MCP Access.
 
 How the connection is protected:
 
@@ -140,6 +146,42 @@ How the connection is protected:
 - Requests from web pages are refused.
 - Nothing works on secure screens (sign-in, UAC), and requests are refused while Windows is locked.
 - The settings live in NVDA's base configuration, so a configuration profile cannot turn key presses on.
+
+## MCP Access: help from far away
+
+MCP Access lets someone you trust help you from their own computer, with their AI assistant working through
+**your** NVDA. They see what NVDA sees on your computer, as if their assistant were next to you, and you hear
+everything that happens. The person being helped needs only NVDA and this add-on: no AI assistant, account
+or subscription.
+
+**To get help:**
+
+1. In Input Gestures, NVDA MCP category, give a key to *Shares this computer with a helper through MCP Access*.
+2. Press it. NVDA copies a code such as `K7Q4-9XMC-4TRW-PH3N-AD6F` to the clipboard. Send it to your helper,
+   for example by message. The code works once, for 10 minutes.
+3. When your helper connects, NVDA asks whether to let them see this computer, with **No** focused.
+   It says the name they gave and a short session check you can compare with them.
+4. If they want to press keys, NVDA asks you again, once for this session. You hear every key.
+5. Use *Stops sharing this computer through MCP Access* at any time. Sharing also ends after two hours.
+
+**To help someone:** ask your assistant to connect with the code they sent, for example
+"help my friend with code K7Q4-9XMC-4TRW-PH3N-AD6F". It uses `nvda_access_connect`; every NVDA tool then works
+on their computer until `nvda_access_disconnect`.
+
+How it is protected:
+
+- **End-to-end encrypted.** The two computers agree on keys made from the code and fresh random keys
+  (X25519 and AES-256-GCM). The relay in between, which InfiArtt runs at `wss://infiartt.com/mcp-access/v1`
+  behind Cloudflare, only forwards data it cannot read, and never sees the code. A code that leaks after
+  a session cannot unlock it.
+- **Strict TLS 1.3** to the relay, with its certificate always checked.
+- **The code works once**, expires after 10 minutes, and the relay limits how often codes can be tried.
+- **You allow the helper first**, and again before their first key press of each session, even if key presses are
+  off in NVDA MCP's settings. Check *Never let MCP Access helpers press keys* to refuse them altogether.
+- **Some tools never work through MCP Access:** reloading add-ons, running NVDA commands, NVDA's log and
+  settings, reading web pages' HTML, and pictures of the screen.
+- **Every connection and action is written** to the action log on your computer.
+- Never tell a helper a password, and close private windows before you share.
 
 ## Privacy
 
@@ -197,6 +239,8 @@ The assistant sees these tools:
 | `nvda_move_to_element` | Move to, or activate, an element from `nvda_list_elements` |
 | `nvda_get_action_log` | The newest entries of the log of actions clients took |
 | `nvda_audit_focus_order` | Tab through a window and report unlabeled controls, silent controls, duplicate names, keyboard traps |
+| `nvda_access_connect` | Help someone through MCP Access: connect to their NVDA with the code they sent, after they allow it |
+| `nvda_access_disconnect` | End the MCP Access session, so the tools work on this computer again |
 | `nvda_recognize_text` | Read the text on the screen in a window or control with Windows' text recognition (OCR), line by line, when NVDA cannot read it |
 
 For developers of add-ons and accessible applications:

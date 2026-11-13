@@ -16,6 +16,7 @@ from mcp.types import TextContent, ToolAnnotations
 from pydantic import BaseModel, Field
 
 from . import api_lookup, dom_inspection, inspection, interaction, prompts, scenario
+from .access_client import AccessClient, default_relay
 from .audit import ROLES_NEEDING_NAMES, FocusOrderAuditor
 from .bridge_client import BridgeClient, NvdaBridgeError, NvdaUnavailableError
 
@@ -140,12 +141,17 @@ async def _remember_client_name(ctx: Any, call_next: Any) -> Any:
 mcp.middleware.append(_remember_client_name)
 
 
+# The other computer's NVDA while helping someone through MCP Access; None works with this computer's NVDA.
+_access: AccessClient | None = None
+
+
 async def _call(method: str, params: dict[str, Any] | None = None, timeout: float | None = None) -> Any:
-    """Call the bridge, turning failures into tool errors the model can act on."""
+    """Call the bridge, or the computer being helped, turning failures into tool errors the model can act on."""
+    client = _access if _access is not None else _client
     try:
         if timeout is None:
-            return await _client.call(method, params)
-        return await _client.call(method, params, timeout=timeout)
+            return await client.call(method, params)
+        return await client.call(method, params, timeout=timeout)
     except NvdaUnavailableError as error:
         raise ToolError(str(error))
     except NvdaBridgeError as error:
@@ -233,8 +239,76 @@ async def nvda_get_status() -> str:
     Call this first when other tools fail, or before nvda_press_keys to see if control is enabled.
     Returns JSON with nvdaVersion, addonVersion, synthesizer, speechMode, foregroundApp,
     foregroundWindow, isControlAllowed, isControlApprovedThisSession and lastSpeechId.
+    While helping someone through MCP Access, it also says whose computer the tools work on.
     """
-    return _json(await _call("getStatus"))
+    status = await _call("getStatus")
+    if _access is not None:
+        status["mcpAccess"] = {"computer": _access.computer_name, "fingerprint": _access.fingerprint}
+    return _json(status)
+
+
+ACCESS = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True
+)
+
+
+@mcp.tool(name="nvda_access_connect", title="Help someone through MCP Access", annotations=ACCESS)
+async def nvda_access_connect(
+    code: Annotated[
+        str,
+        Field(
+            min_length=20,
+            max_length=40,
+            description="The access code the person being helped got from NVDA, such as K7Q4-9XMC-4TRW-PH3N-AD6F.",
+        ),
+    ],
+    relay: Annotated[
+        str | None,
+        Field(description="Another relay's address (wss://...), only if the person shared through it."),
+    ] = None,
+) -> str:
+    """Connect to another person's NVDA through MCP Access, to help them. They choose "Share this computer with
+    a helper" in NVDA, which gives them a code, and send it to you. NVDA then asks them whether to allow you;
+    this waits up to two minutes for their answer. Afterwards every NVDA tool works on their computer, until
+    nvda_access_disconnect, until they stop sharing, or after two hours.
+
+    The connection is end-to-end encrypted: the relay in between cannot read it. Action tools work there too:
+    the first one NVDA asks them to allow for this session, even if key presses are off in their settings,
+    unless they turned MCP Access key presses off (mayAccessHelpersAskToPressKeys in nvda_get_status).
+    Say what you will press before pressing it; they hear every key. Some tools are refused through MCP Access (notAllowedOverAccess): reloading add-ons,
+    running NVDA commands, NVDA's log and settings, reading web pages' HTML, and pictures of the screen.
+    Tell the user whose computer you are working on, and never ask the person for passwords.
+    """
+    global _access
+    if _access is not None:
+        await _access.close()
+        _access = None
+    client = AccessClient(relay or default_relay())
+    client.client_name = _client.client_name
+    try:
+        await client.connect(code)
+    except NvdaUnavailableError as error:
+        raise ToolError(str(error))
+    except ValueError as error:
+        raise ToolError(str(error))
+    _access = client
+    return (
+        f"Connected to {client.computer_name} through MCP Access. Every NVDA tool now works on their computer, "
+        f"and they hear what NVDA says there. Session check: {client.fingerprint} (they can compare it). "
+        "Use nvda_access_disconnect to go back to this computer."
+    )
+
+
+@mcp.tool(name="nvda_access_disconnect", title="Stop helping through MCP Access", annotations=ACCESS)
+async def nvda_access_disconnect() -> str:
+    """End the MCP Access session, so NVDA tools work on this computer again."""
+    global _access
+    if _access is None:
+        return "Not connected to another computer; the tools work on this computer."
+    name = _access.computer_name
+    await _access.close()
+    _access = None
+    return f"Disconnected from {name}. The tools work on this computer again."
 
 
 @mcp.tool(name="nvda_get_focus", title="Focused control", annotations=READ_ONLY)
