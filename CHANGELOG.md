@@ -10,10 +10,12 @@ install them together.
 
 ### Added
 
-- MCP Access works both ways. The person being helped answers their helper with a new NVDA command, and
-  another reads the last five messages again; messages from the helper play a sound and are spoken as
-  messages from them, so they are never taken for NVDA's own. The helper's assistant sends messages with
-  `nvda_access_send_message` and reads answers with `nvda_access_messages`, which can wait for one.
+- MCP Access works both ways. The person being helped has one window, opened with a new NVDA command, with
+  the session's status, their conversation, a field to answer (Enter sends) and a button to stop sharing.
+  Messages from the helper play a sound and are spoken as messages from them, so they are never taken for
+  NVDA's own. The helper's assistant sends messages with `nvda_access_send_message` and reads answers with
+  `nvda_access_messages`, which can wait for one; a message that arrives meanwhile comes with the result of
+  its next tool, so it is not missed.
   Messages are end-to-end encrypted like the rest of the session, at most 2000 characters, and a helper may
   send at most 20 a minute.
 

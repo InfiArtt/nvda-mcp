@@ -294,6 +294,8 @@ class ShareSession:
 		self._thread: threading.Thread | None = None
 		self._helperMessageTimes: list[float] = []
 		self.helperName: str | None = None
+		#: The session check both sides can compare, once connected.
+		self.fingerprint: str | None = None
 		#: The messages of this session, oldest first: {"from": "helper" or "me", "text": ..., "time": ...}.
 		self.messages: list[dict[str, Any]] = []
 
@@ -390,6 +392,7 @@ class ShareSession:
 			raise AccessShareError("You did not allow the helper to connect.", "declined")
 		socket_.send(session_.seal(json.dumps({"type": "approved"}).encode("utf-8")))
 		self._session = session_
+		self.fingerprint = session_.fingerprint
 		self._onEvent("connected", {"helper": self.helperName, "fingerprint": session_.fingerprint})
 		self._answerRequests(socket_, session_)
 

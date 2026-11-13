@@ -163,7 +163,7 @@ Perintah di Gestur Masukan, kategori NVDA MCP (tanpa tombol bawaan):
   kontrol yang terfokus, kontrol di jendela itu, dan ucapan NVDA terakhir. Bisa dipakai tanpa klien MCP.
 - Membagikan komputer ini ke penolong lewat MCP Access, atau menyebutkan siapa yang tersambung.
 - Berhenti membagikan komputer ini lewat MCP Access.
-- Mengirim pesan ke penolong yang tersambung lewat MCP Access, dan membacakan lagi pesan terakhir.
+- Membuka jendela MCP Access, untuk mengobrol dengan penolong.
 
 Cara koneksinya dilindungi:
 
@@ -191,14 +191,15 @@ tanpa asisten AI, akun, atau langganan.
 4. Kalau mereka ingin menekan tombol, atau mengambil gambar layar untuk melihat tampilan sesuatu, NVDA bertanya
    lagi, sekali untuk masing-masing di sesi ini. Anda mendengar setiap tombol.
 5. Mengobrol dengan penolong selagi mereka bekerja: pesan dari mereka didahului bunyi dan diucapkan sebagai pesan
-   dari mereka. *Mengirim pesan ke penolong yang tersambung lewat MCP Access* untuk membalas, dan *Membacakan lagi
-   pesan terakhir di sesi MCP Access* untuk mengulang lima pesan terakhir.
+   dari mereka. *Membuka jendela MCP Access* menampilkan percakapan Anda, kolom untuk membalas (Enter mengirim),
+   dan tombol untuk berhenti berbagi. Escape menutup jendela; berbagi tetap berjalan.
 6. Pakai *Berhenti membagikan komputer ini lewat MCP Access* kapan saja. Berbagi juga berakhir setelah dua jam.
 
 **Untuk menolong orang lain:** tempel kode yang mereka kirim ke asisten Anda, misalnya
 "bantu temanku, kodenya K7Q4-9XMC-4TRW-PH3N-AD6F". Asisten tersambung dengan `nvda_access_connect`, lalu semua
 alat NVDA bekerja di komputer mereka sampai `nvda_access_disconnect`. Asisten bisa bertanya kepada mereka dengan
-`nvda_access_send_message` dan menunggu jawabannya dengan `nvda_access_messages`.
+`nvda_access_send_message` dan menunggu jawabannya dengan `nvda_access_messages`; pesan yang datang selagi
+asisten mengerjakan hal lain ikut muncul di hasil berikutnya.
 Atau pilih prompt siap pakai
 `help_someone` dan tempel kodenya: prompt itu juga meminta asisten bilang dulu sebelum bertindak, tidak pernah
 meminta kata sandi, dan memutus sambungan setelah selesai. Kode aman ditempel: hanya sekali pakai dan kedaluwarsa

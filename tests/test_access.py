@@ -224,3 +224,23 @@ def test_a_message_needs_a_connected_helper():
         session.sendMessage("hello")
     with pytest.raises(accessShare.AccessShareError, match="empty"):
         session.sendMessage("   ")
+
+
+async def test_new_messages_come_with_the_next_tool_result_once(relay):
+    sharer = Sharer(relay.url)
+    sharer.session.start()
+    _event, details = await sharer.next_event()
+    async with Client(server.mcp) as client:
+        await client.call_tool("nvda_access_connect", {"code": details["code"], "relay": relay.url})
+        await sharer.next_event()
+        await anyio.to_thread.run_sync(sharer.session.sendMessage, "kamu disana? halo?")
+        await anyio.sleep(0.3)
+        first = await client.call_tool("nvda_get_focus", {})
+        second = await client.call_tool("nvda_get_focus", {})
+        nothing_new = await client.call_tool("nvda_access_messages", {"after_id": 1})
+        await client.call_tool("nvda_access_disconnect", {})
+    texts = [content.text for content in first.content]
+    assert "Focus: Send (button)" in texts[0]
+    assert "New message from the person at Aswar's laptop" in texts[-1] and "kamu disana? halo?" in texts[-1]
+    assert not any("New message" in content.text for content in second.content)
+    assert "No new messages" in text_of(nothing_new)

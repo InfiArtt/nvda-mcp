@@ -31,6 +31,7 @@ from speech.extensions import pre_speech
 from speech.types import SpeechSequence
 
 from . import accessShare
+from .accessWindow import AccessWindow
 from .actionLog import ActionLog
 from .bridge import PROTOCOL_VERSION, Bridge
 from .configSpec import CONFIG_SECTION, CONFIG_SPEC
@@ -301,6 +302,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		global _plugin
 		self._bridge: Bridge | None = None
 		self._share: accessShare.ShareSession | None = None
+		self._accessWindow: AccessWindow | None = None
 		if globalVars.appArgs.secure:
 			# Never expose the secure desktop (sign-in, UAC) to another process.
 			return
@@ -321,6 +323,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._devTools.unregister()
 			NVDASettingsDialog.categoryClasses.remove(NvdaMcpSettingsPanel)
 			self._stopSharing()
+			if self._accessWindow is not None:
+				self._accessWindow.Destroy()
+				self._accessWindow = None
 			self._stopBridge()
 			_plugin = None
 		super().terminate()
@@ -431,69 +436,24 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._stopSharing()
 
 	@script(
-		# Translators: Describes a command in the Input Gestures dialog.
-		description=_("Sends a message to the helper connected through MCP Access"),
+		# Translators: Describes a command in the Input Gestures dialog. The MCP Access window shows the
+		# conversation with the helper, a field to answer them, and a button to stop sharing.
+		description=_("Opens the MCP Access window, to talk with your helper"),
 		category=SCRCAT_NVDA_MCP,
 	)
-	def script_messageHelper(self, gesture) -> None:
-		share = self._share
-		if share is None or not share.isConnected:
-			# Translators: Reported when the user wants to message a helper but none is connected.
-			ui.message(_("No helper is connected through MCP Access"))
+	def script_openAccessWindow(self, gesture) -> None:
+		if self._share is None:
+			# Translators: Reported when the user opens the MCP Access window before sharing.
+			ui.message(_("This computer is not being shared. Use the share command first."))
 			return
-		wx.CallAfter(self._askForMessage, share)
+		wx.CallAfter(self._showAccessWindow)
 
-	def _askForMessage(self, share: accessShare.ShareSession) -> None:
-		dialog = wx.TextEntryDialog(
-			mainFrame,
-			# Translators: The label of the text field for a message to the MCP Access helper.
-			_("Message to {helper}:").format(helper=share.helperName),
-			# Translators: The title of the dialog for writing a message to the MCP Access helper.
-			_("NVDA MCP: message your helper"),
-			style=wx.TE_MULTILINE | wx.OK | wx.CANCEL,
-		)
-		mainFrame.prePopup()
-		try:
-			answer = dialog.ShowModal()
-			text = dialog.GetValue()
-		finally:
-			dialog.Destroy()
-			mainFrame.postPopup()
-		if answer != wx.ID_OK or not text.strip():
-			return
-
-		def send() -> None:
-			try:
-				share.sendMessage(text)
-			except (accessShare.AccessShareError, OSError) as error:
-				log.debugWarning("Could not send a message to the MCP Access helper", exc_info=True)
-				# Translators: Reported when a message to the MCP Access helper could not be sent.
-				wx.CallAfter(ui.message, _("The message could not be sent: {error}").format(error=error))
-				return
-			# Translators: Reported after a message to the MCP Access helper was sent.
-			wx.CallAfter(ui.message, _("Message sent"))
-
-		threading.Thread(target=send, name="nvdaMcpAccessMessage", daemon=True).start()
-
-	@script(
-		# Translators: Describes a command in the Input Gestures dialog.
-		description=_("Reads the latest messages of the MCP Access session again"),
-		category=SCRCAT_NVDA_MCP,
-	)
-	def script_readHelperMessages(self, gesture) -> None:
-		messages = self._share.messages[-MESSAGES_TO_READ:] if self._share is not None else []
-		if not messages:
-			# Translators: Reported when there are no MCP Access messages to read.
-			ui.message(_("No MCP Access messages"))
-			return
-		helper = self._share.helperName or ""
-		for message in messages:
-			if message["from"] == "helper":
-				# Translators: A message from the MCP Access helper, read again. {helper} is their name.
-				ui.message(_("{helper} said: {text}").format(helper=helper, text=message["text"]))
-			else:
-				# Translators: A message the user sent to their MCP Access helper, read again.
-				ui.message(_("You said: {text}").format(text=message["text"]))
+	def _showAccessWindow(self) -> None:
+		if self._accessWindow is None or self._accessWindow.share is not self._share:
+			if self._accessWindow is not None:
+				self._accessWindow.Destroy()
+			self._accessWindow = AccessWindow(mainFrame, self._share, self._stopSharing)
+		self._accessWindow.show()
 
 	def _stopSharing(self) -> None:
 		if self._share is not None:
@@ -501,6 +461,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def _onShareEvent(self, event: str, details: dict) -> None:
 		"""What the sharing session reports, said to the user. Runs on the main thread."""
+		if self._accessWindow is not None and self._accessWindow.share is self._share:
+			self._accessWindow.refresh()
 		if event == "waiting":
 			api.copyToClip(details["code"])
 			ui.message(
@@ -514,9 +476,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._logAccess("mcpAccessConnected", details["helper"])
 			ui.message(
 				# Translators: Reported when a helper connects through MCP Access.
-				_("{helper} is connected through MCP Access. Use the stop sharing command to end it.").format(
-					helper=details["helper"]
-				),
+				_(
+					"{helper} is connected through MCP Access. The MCP Access window has your conversation."
+				).format(helper=details["helper"]),
 			)
 		elif event == "message":
 			# A sound first, so a message from the helper is never taken for something NVDA itself says.
@@ -601,9 +563,6 @@ def _spokenCode(code: str) -> str:
 	"""The code with spaces between its characters, so speech reads it letter by letter."""
 	return ", ".join(" ".join(group) for group in code.split("-"))
 
-
-# How many of the latest messages the command that reads them again says.
-MESSAGES_TO_READ = 5
 
 # The person being helped has this long to answer; the helper's server stops waiting soon after.
 ACCESS_APPROVAL_SECONDS = 110

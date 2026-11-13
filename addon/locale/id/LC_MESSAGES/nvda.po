@@ -271,10 +271,6 @@ msgstr ""
 "percaya: siapa pun yang memegangnya bisa meminta melihat komputer ini. Kode "
 "berlaku {minutes} menit."
 
-#. Translators: Reported when a helper connects through MCP Access.
-msgid "{helper} is connected through MCP Access. Use the stop sharing command to end it."
-msgstr "{helper} tersambung lewat MCP Access. Pakai perintah berhenti berbagi untuk mengakhirinya."
-
 #. Translators: Reported when sharing through MCP Access stops.
 msgid "MCP Access sharing stopped"
 msgstr "Berbagi lewat MCP Access dihentikan"
@@ -384,22 +380,6 @@ msgstr ""
 "\n"
 "Izinkan untuk sesi MCP Access ini saja?"
 
-#. Translators: Describes a command in the Input Gestures dialog.
-msgid "Sends a message to the helper connected through MCP Access"
-msgstr "Mengirim pesan ke penolong yang tersambung lewat MCP Access"
-
-#. Translators: Reported when the user wants to message a helper but none is connected.
-msgid "No helper is connected through MCP Access"
-msgstr "Tidak ada penolong yang tersambung lewat MCP Access"
-
-#. Translators: The label of the text field for a message to the MCP Access helper.
-msgid "Message to {helper}:"
-msgstr "Pesan untuk {helper}:"
-
-#. Translators: The title of the dialog for writing a message to the MCP Access helper.
-msgid "NVDA MCP: message your helper"
-msgstr "NVDA MCP: kirim pesan ke penolong"
-
 #. Translators: Reported when a message to the MCP Access helper could not be sent.
 msgid "The message could not be sent: {error}"
 msgstr "Pesan tidak dapat dikirim: {error}"
@@ -408,22 +388,63 @@ msgstr "Pesan tidak dapat dikirim: {error}"
 msgid "Message sent"
 msgstr "Pesan terkirim"
 
-#. Translators: Describes a command in the Input Gestures dialog.
-msgid "Reads the latest messages of the MCP Access session again"
-msgstr "Membacakan lagi pesan terakhir di sesi MCP Access"
-
-#. Translators: Reported when there are no MCP Access messages to read.
-msgid "No MCP Access messages"
-msgstr "Belum ada pesan MCP Access"
-
-#. Translators: A message from the MCP Access helper, read again. {helper} is their name.
-msgid "{helper} said: {text}"
-msgstr "{helper} bilang: {text}"
-
-#. Translators: A message the user sent to their MCP Access helper, read again.
-msgid "You said: {text}"
-msgstr "Anda bilang: {text}"
-
 #. Translators: A message from the MCP Access helper. {helper} is their name; {text} what they wrote.
 msgid "Message from {helper}: {text}"
 msgstr "Pesan dari {helper}: {text}"
+
+#. Translators: The title of the MCP Access window, where the user talks with their helper.
+msgid "NVDA MCP Access"
+msgstr "NVDA MCP Access"
+
+#. Translators: The label of the list of messages in the MCP Access window.
+msgid "&Messages:"
+msgstr "&Pesan:"
+
+#. Translators: The label of the field for a message to the helper in the MCP Access window.
+msgid "&Your message (Enter sends):"
+msgstr "Pesan &Anda (Enter untuk mengirim):"
+
+#. Translators: A button in the MCP Access window that sends the message to the helper.
+msgid "&Send"
+msgstr "&Kirim"
+
+#. Translators: A button in the MCP Access window that ends sharing this computer.
+msgid "S&top sharing"
+msgstr "&Berhenti berbagi"
+
+#. Translators: A button that closes the MCP Access window; sharing goes on.
+msgid "&Close"
+msgstr "&Tutup"
+
+#. Translators: Status in the MCP Access window after sharing ended.
+msgid "Sharing has ended. Share again for a new code."
+msgstr "Berbagi sudah berakhir. Bagikan lagi untuk mendapat kode baru."
+
+#. Translators: Status in the MCP Access window. {helper} is their name; {check} the session check.
+msgid "Connected with {helper}. Session check: {check}."
+msgstr "Tersambung dengan {helper}. Kode sesi: {check}."
+
+#. Translators: Status in the MCP Access window while the code waits for a helper.
+msgid "Waiting for a helper. Code: {code}"
+msgstr "Menunggu penolong. Kode: {code}"
+
+#. Translators: A message from the helper in the MCP Access window. {helper} is their name.
+msgid "{helper}: {text}"
+msgstr "{helper}: {text}"
+
+#. Translators: A message the user sent, in the MCP Access window.
+msgid "You: {text}"
+msgstr "Anda: {text}"
+
+#. Translators: Describes a command in the Input Gestures dialog. The MCP Access window shows the
+#. conversation with the helper, a field to answer them, and a button to stop sharing.
+msgid "Opens the MCP Access window, to talk with your helper"
+msgstr "Membuka jendela MCP Access, untuk mengobrol dengan penolong"
+
+#. Translators: Reported when the user opens the MCP Access window before sharing.
+msgid "This computer is not being shared. Use the share command first."
+msgstr "Komputer ini sedang tidak dibagikan. Pakai perintah berbagi dulu."
+
+#. Translators: Reported when a helper connects through MCP Access.
+msgid "{helper} is connected through MCP Access. The MCP Access window has your conversation."
+msgstr "{helper} tersambung lewat MCP Access. Percakapan Anda ada di jendela MCP Access."

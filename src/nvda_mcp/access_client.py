@@ -62,6 +62,8 @@ class AccessClient:
         self.ended: str | None = None
         self.messages: list[dict[str, Any]] = []
         """Messages from the person being helped, oldest first: {"id", "text", "time"}."""
+        self.noticed_id = 0
+        """The newest message the assistant was already shown, by nvda_access_messages or a notice."""
         self._message_arrived = asyncio.Event()
 
     @property
