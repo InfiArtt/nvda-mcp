@@ -373,6 +373,10 @@ class FakeWindow:
                     else [],
                 }
             ),
+            "mouseClick": lambda params: self.mouse("mouseClick", params),
+            "mouseScroll": lambda params: self.mouse("mouseScroll", params),
+            "mouseMove": lambda params: self.mouse("mouseMove", params),
+            "mouseDrag": lambda params: self.mouse("mouseDrag", params),
             "getAddonPaths": lambda params: {
                 "nvdaVersion": "2026.3",
                 "configPath": r"C:\Users\a\AppData\Roaming\nvda",
@@ -385,6 +389,15 @@ class FakeWindow:
                 ],
             },
         }
+
+    def mouse(self, method, params):
+        self.calls[method] = params
+        result = {**self.speak_after_action("Kick volume 3 dB", params), "point": [530, 312]}
+        if method == "mouseDrag":
+            result.update({"from": [530, 312], "to": [530, 260]})
+        if method in ("mouseClick", "mouseMove"):
+            result["objectAtPoint"] = {"role": "unknown", "appName": "reaper"}
+        return result
 
     def capture_control(self, params):
         self.calls.setdefault("captureControl", []).append(params)
@@ -940,3 +953,29 @@ async def test_addon_paths_say_where_code_goes_and_whether_it_loads(connect):
     assert r"scratchpad\appModules" in result
     assert "Loading code from the scratchpad is OFF" in result and "Enable loading custom code" in result
     assert "- nvdaMcp 1.3.0: NVDA MCP" in result
+
+
+async def test_mouse_tools_aim_at_a_control_a_window_or_the_screen(connect):
+    window = connect(FakeWindow([("OK", "button")]))
+    async with Client(server.mcp) as client:
+        click = await client.call_tool("nvda_mouse_click", {"id": 4, "x": 30, "y": 12, "double": True})
+        assert (
+            window.calls["mouseClick"].items()
+            >= {"id": 4, "x": 30, "y": 12, "button": "left", "double": True}.items()
+        )
+        scroll = await client.call_tool(
+            "nvda_mouse_scroll", {"window": 77, "x": 5, "y": 6, "direction": "up"}
+        )
+        assert window.calls["mouseScroll"].items() >= {"window": 77, "direction": "up", "amount": 3}.items()
+        hover = await client.call_tool("nvda_mouse_hover", {"x": 530, "y": 312})
+        assert "id" not in window.calls["mouseMove"] and window.calls["mouseMove"]["x"] == 530
+        drag = await client.call_tool("nvda_mouse_drag", {"id": 4, "to_x": 30, "to_y": 0})
+        assert window.calls["mouseDrag"].items() >= {"id": 4, "toX": 30, "toY": 0}.items()
+        both = await client.call_tool("nvda_mouse_click", {"id": 4, "window": 77})
+    assert text_of(click).startswith("Double-clicked the left button at 530, 312 on the screen.")
+    assert "NVDA said: Kick volume 3 dB" in text_of(click)
+    assert 'Under the mouse now: unknown "(no name)"' in text_of(click)
+    assert text_of(scroll).startswith("Scrolled up 3 notches at 530, 312.")
+    assert text_of(hover).startswith("Moved the mouse at 530, 312")
+    assert text_of(drag).startswith("Dragged from 530, 312 to 530, 260.")
+    assert both.is_error and "id or window, not both" in text_of(both)

@@ -81,6 +81,10 @@ ALLOWED_METHODS = frozenset(
 		"traceEvents",
 		"getOutput",
 		"captureControl",
+		"mouseClick",
+		"mouseScroll",
+		"mouseMove",
+		"mouseDrag",
 	}
 )
 

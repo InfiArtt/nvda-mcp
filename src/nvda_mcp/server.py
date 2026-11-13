@@ -6,7 +6,7 @@ import logging
 import re
 from enum import Enum
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
@@ -1076,6 +1076,158 @@ async def nvda_activate_object(
         PRESS_KEYS_TIMEOUT_SECONDS,
     )
     return _action_markdown(result)
+
+
+# Mouse tools. Every point is given the same way: a control (id), a window, or the screen.
+MouseIdParam = Annotated[
+    int | None,
+    Field(
+        ge=1,
+        description=(
+            "A control from nvda_find_objects. Without x and y, its middle; with them, a point counted from "
+            "its top left corner, such as a knob in a plugin's canvas."
+        ),
+    ),
+]
+MouseWindowParam = Annotated[
+    int | None,
+    Field(
+        description="Instead of id, a window handle from nvda_list_windows; x and y count from its top left."
+    ),
+]
+MouseXParam = Annotated[
+    int | None,
+    Field(
+        description="Pixels from the left: of the control or window, or of the screen when neither is given."
+    ),
+]
+MouseYParam = Annotated[
+    int | None,
+    Field(
+        description="Pixels from the top: of the control or window, or of the screen when neither is given."
+    ),
+]
+
+
+def _mouse_params(id: int | None, window: int | None, x: int | None, y: int | None) -> dict[str, Any]:
+    if id is not None and window is not None:
+        raise ToolError("Pass id or window, not both.")
+    params: dict[str, Any] = {}
+    if id is not None:
+        params["id"] = id
+    if window is not None:
+        params["window"] = window
+    if x is not None:
+        params["x"] = x
+    if y is not None:
+        params["y"] = y
+    return params
+
+
+def _mouse_markdown(result: dict[str, Any], what: str) -> str:
+    text = f"{what} at {result['point'][0]}, {result['point'][1]} on the screen.\n" + _action_markdown(result)
+    under = result.get("objectAtPoint")
+    if under:
+        name = under.get("name") or "(no name)"
+        text += f'\nUnder the mouse now: {under.get("role", "object")} "{name}"'
+    return text
+
+
+@mcp.tool(name="nvda_mouse_click", title="Click with the mouse", annotations=CONTROL)
+async def nvda_mouse_click(
+    id: MouseIdParam = None,
+    window: MouseWindowParam = None,
+    x: MouseXParam = None,
+    y: MouseYParam = None,
+    button: Annotated[Literal["left", "right", "middle"], Field(description="The mouse button.")] = "left",
+    double: Annotated[bool, Field(description="Double-click instead of a single click.")] = False,
+    settle_ms: SettleParam = 400,
+    timeout_ms: TimeoutParam = 3000,
+    until_speech: UntilSpeechParam = None,
+    record: RecordParam = False,
+    record_within: RecordWithinParam = None,
+) -> str:
+    """Click with the mouse, then report what NVDA said and what is under the mouse.
+
+    For what the keyboard cannot reach, such as buttons drawn on a canvas that NVDA reads as one "pane"
+    (audio plugins, games, some installers). Prefer keys and nvda_activate_object when they work: they are
+    what the user can repeat. Find where to click with nvda_recognize_text (screen positions of text) or
+    nvda_capture_control (a picture whose pixels count from the control's top left, after its padding).
+    Like key presses, it needs the user's permission, and the user hears every step.
+    """
+    params = _mouse_params(id, window, x, y) | {"button": button, "double": double}
+    result = await _call(
+        "mouseClick",
+        params | _listen(settle_ms, timeout_ms, until_speech, record, record_within),
+        PRESS_KEYS_TIMEOUT_SECONDS,
+    )
+    label = f"{'Double-clicked' if double else 'Clicked'} the {button} button"
+    return _mouse_markdown(result, label)
+
+
+@mcp.tool(name="nvda_mouse_scroll", title="Scroll with the mouse wheel", annotations=CONTROL)
+async def nvda_mouse_scroll(
+    id: MouseIdParam = None,
+    window: MouseWindowParam = None,
+    x: MouseXParam = None,
+    y: MouseYParam = None,
+    direction: Annotated[Literal["up", "down", "left", "right"], Field(description="Which way.")] = "down",
+    amount: Annotated[int, Field(ge=1, le=30, description="Notches of the wheel.")] = 3,
+    settle_ms: SettleParam = 400,
+    timeout_ms: TimeoutParam = 3000,
+) -> str:
+    """Turn the mouse wheel over a point: to scroll a list or page that keys do not move, or to turn a knob
+    in an audio plugin, which many turn with the wheel. Needs the user's permission, like key presses.
+    """
+    params = _mouse_params(id, window, x, y) | {"direction": direction, "amount": amount}
+    result = await _call(
+        "mouseScroll", params | _listen(settle_ms, timeout_ms, None, False, None), PRESS_KEYS_TIMEOUT_SECONDS
+    )
+    point = result["point"]
+    return f"Scrolled {direction} {amount} notches at {point[0]}, {point[1]}.\n" + _action_markdown(result)
+
+
+@mcp.tool(name="nvda_mouse_hover", title="Move the mouse over something", annotations=CONTROL)
+async def nvda_mouse_hover(
+    id: MouseIdParam = None,
+    window: MouseWindowParam = None,
+    x: MouseXParam = None,
+    y: MouseYParam = None,
+    settle_ms: SettleParam = 800,
+    timeout_ms: TimeoutParam = 3000,
+) -> str:
+    """Move the mouse to a point without clicking, to show a tooltip or a menu that opens on hover, and report
+    what is under it. Needs the user's permission, like key presses.
+    """
+    result = await _call(
+        "mouseMove",
+        _mouse_params(id, window, x, y) | _listen(settle_ms, timeout_ms, None, False, None),
+        PRESS_KEYS_TIMEOUT_SECONDS,
+    )
+    return _mouse_markdown(result, "Moved the mouse")
+
+
+@mcp.tool(name="nvda_mouse_drag", title="Drag with the mouse", annotations=CONTROL)
+async def nvda_mouse_drag(
+    to_x: Annotated[int, Field(description="Where to drag to, counted the same way as x.")],
+    to_y: Annotated[int, Field(description="Where to drag to, counted the same way as y.")],
+    id: MouseIdParam = None,
+    window: MouseWindowParam = None,
+    x: MouseXParam = None,
+    y: MouseYParam = None,
+    settle_ms: SettleParam = 400,
+    timeout_ms: TimeoutParam = 3000,
+) -> str:
+    """Press the left button at one point, move to another and release it: to move a fader or slider drawn on
+    a canvas, or drag something. Both points are counted the same way (from the control, the window, or the
+    screen). Needs the user's permission, like key presses.
+    """
+    params = _mouse_params(id, window, x, y) | {"toX": to_x, "toY": to_y}
+    result = await _call(
+        "mouseDrag", params | _listen(settle_ms, timeout_ms, None, False, None), PRESS_KEYS_TIMEOUT_SECONDS
+    )
+    start, end = result["from"], result["to"]
+    return f"Dragged from {start[0]}, {start[1]} to {end[0]}, {end[1]}.\n" + _action_markdown(result)
 
 
 @mcp.tool(name="nvda_set_value", title="Set a control's text (experimental)", annotations=CONTROL)

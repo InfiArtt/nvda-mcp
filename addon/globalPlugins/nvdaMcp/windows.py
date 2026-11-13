@@ -151,6 +151,24 @@ def listWindows(includeHidden: bool = False) -> list[WindowInfo]:
 	return windows
 
 
+def windowRect(hwnd: int) -> tuple[int, int, int, int] | None:
+	"""A window's left, top, width and height on the screen, or None if it has gone."""
+	rect = wintypes.RECT()
+	if not _user32.GetWindowRect(wintypes.HWND(hwnd), ctypes.byref(rect)):
+		return None
+	return rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top
+
+
+def processAtPoint(x: int, y: int) -> int | None:
+	"""The process whose window is at this point of the screen, or None if there is none."""
+	hwnd = _user32.WindowFromPoint(wintypes.POINT(x, y))
+	if not hwnd:
+		return None
+	processId = wintypes.DWORD()
+	_user32.GetWindowThreadProcessId(hwnd, ctypes.byref(processId))
+	return processId.value or None
+
+
 def className(hwnd: int) -> str:
 	buffer = ctypes.create_unicode_buffer(256)
 	_user32.GetClassNameW(hwnd, buffer, len(buffer))
