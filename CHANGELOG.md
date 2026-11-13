@@ -10,6 +10,7 @@ install them together.
 
 ### Added
 
+- MCP Access is in early access: free for now, and it may change.
 - MCP Access works both ways. The person being helped has one window, opened with a new NVDA command, with
   the session's status, their conversation, a field to answer (Enter sends) and a button to stop sharing.
   Messages from the helper play a sound and are spoken as messages from them, so they are never taken for

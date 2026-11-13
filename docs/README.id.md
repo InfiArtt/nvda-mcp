@@ -176,6 +176,9 @@ Cara koneksinya dilindungi:
 
 ## MCP Access: bantuan dari jauh
 
+**Akses awal (early access).** MCP Access masih baru: untuk sekarang gratis selagi kami mempelajari cara orang
+memakainya, dan bisa berubah. Ceritakan pengalaman Anda di [GitHub issues](https://github.com/InfiArtt/nvda-mcp/issues).
+
 MCP Access membuat orang yang Anda percaya bisa membantu dari komputernya sendiri, dengan asisten AI-nya yang
 bekerja lewat NVDA **Anda**. Mereka melihat apa yang dilihat NVDA di komputer Anda, seolah asistennya duduk di
 sebelah Anda, dan Anda mendengar semua yang terjadi. Orang yang dibantu cukup punya NVDA dan add-on ini:

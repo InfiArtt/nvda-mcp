@@ -164,6 +164,9 @@ How the connection is protected:
 
 ## MCP Access: help from far away
 
+**Early access.** MCP Access is new: it is free for now while we learn how people use it, and it may change.
+Tell us how it goes in the [GitHub issues](https://github.com/InfiArtt/nvda-mcp/issues).
+
 MCP Access lets someone you trust help you from their own computer, with their AI assistant working through
 **your** NVDA. They see what NVDA sees on your computer, as if their assistant were next to you, and you hear
 everything that happens. The person being helped needs only NVDA and this add-on: no AI assistant, account
