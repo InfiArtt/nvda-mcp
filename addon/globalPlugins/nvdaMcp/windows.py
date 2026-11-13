@@ -67,9 +67,11 @@ class WindowInfo:
 	isMinimized: bool
 	isHidden: bool
 	"""Cloaked: on another virtual desktop, or a suspended Store app. Alt+Tab leaves these out."""
+	ownerHandle: int | None = None
+	"""The window this one belongs to, such as REAPER's main window for its FX windows. Alt+Tab leaves these out."""
 
 	def toDict(self, appName: str | None, isForeground: bool) -> dict[str, object]:
-		return {
+		result: dict[str, object] = {
 			"handle": self.handle,
 			"title": self.title,
 			"appName": appName,
@@ -77,6 +79,9 @@ class WindowInfo:
 			"isMinimized": self.isMinimized,
 			"isHidden": self.isHidden,
 		}
+		if self.ownerHandle:
+			result["ownerHandle"] = self.ownerHandle
+		return result
 
 
 def _isCloaked(hwnd: int) -> bool:
@@ -88,14 +93,25 @@ def _isCloaked(hwnd: int) -> bool:
 	return result == 0 and cloaked.value != 0
 
 
+def isListedWindow(isVisible: bool, owner: int, exStyle: int, titleLength: int) -> bool:
+	"""Whether a top-level window is one a user works in: visible and titled, never "no activate".
+
+	Alt+Tab also leaves out windows that belong to another window and tool windows. Those that belong to another
+	window are listed here, tool windows or not, since some applications open their main work in them, such as
+	REAPER's FX windows; unowned tool windows are left out, as they are mostly hidden helpers.
+	"""
+	if not isVisible or titleLength <= 0 or exStyle & _WS_EX_NOACTIVATE:
+		return False
+	return bool(owner) or not exStyle & _WS_EX_TOOLWINDOW
+
+
 def _isAppWindow(hwnd: int) -> bool:
-	"""Roughly the windows Alt+Tab offers, cloaked or not: visible, titled, unowned, not tool windows."""
-	if not _user32.IsWindowVisible(hwnd) or _user32.GetWindow(hwnd, _GW_OWNER):
-		return False
-	exStyle = _user32.GetWindowLongW(hwnd, _GWL_EXSTYLE)
-	if exStyle & (_WS_EX_TOOLWINDOW | _WS_EX_NOACTIVATE):
-		return False
-	return _user32.GetWindowTextLengthW(hwnd) > 0
+	return isListedWindow(
+		bool(_user32.IsWindowVisible(hwnd)),
+		_user32.GetWindow(hwnd, _GW_OWNER) or 0,
+		_user32.GetWindowLongW(hwnd, _GWL_EXSTYLE),
+		_user32.GetWindowTextLengthW(hwnd),
+	)
 
 
 def _windowText(hwnd: int) -> str:
@@ -121,13 +137,36 @@ def listWindows(includeHidden: bool = False) -> list[WindowInfo]:
 				_user32.GetWindowThreadProcessId(hwnd, ctypes.byref(processId))
 				windows.append(
 					WindowInfo(
-						hwnd, _windowText(hwnd), processId.value, bool(_user32.IsIconic(hwnd)), isHidden
+						hwnd,
+						_windowText(hwnd),
+						processId.value,
+						bool(_user32.IsIconic(hwnd)),
+						isHidden,
+						_user32.GetWindow(hwnd, _GW_OWNER) or None,
 					)
 				)
 		return True
 
 	_user32.EnumWindows(onWindow, 0)
 	return windows
+
+
+def windowRect(hwnd: int) -> tuple[int, int, int, int] | None:
+	"""A window's left, top, width and height on the screen, or None if it has gone."""
+	rect = wintypes.RECT()
+	if not _user32.GetWindowRect(wintypes.HWND(hwnd), ctypes.byref(rect)):
+		return None
+	return rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top
+
+
+def processAtPoint(x: int, y: int) -> int | None:
+	"""The process whose window is at this point of the screen, or None if there is none."""
+	hwnd = _user32.WindowFromPoint(wintypes.POINT(x, y))
+	if not hwnd:
+		return None
+	processId = wintypes.DWORD()
+	_user32.GetWindowThreadProcessId(hwnd, ctypes.byref(processId))
+	return processId.value or None
 
 
 def className(hwnd: int) -> str:

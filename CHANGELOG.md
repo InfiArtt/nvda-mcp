@@ -8,6 +8,47 @@ install them together.
 
 ## [Unreleased]
 
+What is new, in short: MCP Access now works both ways, with one window for the person being helped, and in
+Claude Code their messages can wake the helper's assistant. The assistant can use the mouse, for what the
+keyboard cannot reach. MCP Access is in early access: free for now, and it may change.
+
+### Added
+
+- **Talking both ways through MCP Access.**
+  - The person being helped has one window, opened with a new NVDA command: the session's status, their
+    conversation, a field to answer (Enter sends) and a button to stop sharing.
+  - Messages from the helper play a sound and are spoken as messages from them, so they are never taken for
+    NVDA's own, and stay in the window to hear again.
+  - The helper's assistant sends messages with `nvda_access_send_message` and reads answers with
+    `nvda_access_messages`, which can wait for one; a message that arrives while it does something else comes
+    with the result of its next tool, once.
+  - Messages are end-to-end encrypted with the session, at most 2000 characters, and a helper may send at most
+    20 a minute.
+- **Waking the helper's assistant.** Each message is also written to a small inbox file in the helper's own
+  temporary folder, deleted shortly after the session ends, so a background monitor in Claude Code wakes the
+  assistant when the person writes, even when the helper is away.
+- **Honest about who is talking.** The person being helped sees the helper's assistant as "*name* (AI assistant)"
+  (`helper_name` in `nvda_access_connect`), in the dialog and in every message.
+- **Talk mode** (`nvda_access_connect` and `nvda_access_set_mode`): the helper's assistant only reads and
+  talks, without acting on the person's computer, for example while the helper is away.
+- **Mouse tools**, for what the keyboard cannot reach, such as buttons and knobs drawn on an audio plugin's
+  canvas: `nvda_mouse_click` (left, right, middle, double), `nvda_mouse_scroll`, `nvda_mouse_hover` and
+  `nvda_mouse_drag`. They aim at a control (its middle, or a point counted from its top left), a window, or the
+  screen, refuse points outside the control or off the screen, and go through the same checks as key presses,
+  through MCP Access too. Click and hover say what is under the mouse.
+
+### Changed
+
+- The README is reorganized: MCP Access has its own section, saying which assistants can be woken, and the tools
+  are grouped into reading, acting with the keyboard, acting with the mouse, MCP Access, and for developers.
+- The bridge protocol version is now 9. Update the add-on and the server together; through MCP Access, both
+  computers need the same version, and a connection between different versions is refused, saying so.
+
+### Fixed
+
+- `nvda_list_windows` also lists windows that belong to another window, such as REAPER's FX windows, with the
+  handle of the window they belong to. Like Alt+Tab, it used to leave them out.
+
 ## [1.3.0] - 2026-11-13
 
 ### Added

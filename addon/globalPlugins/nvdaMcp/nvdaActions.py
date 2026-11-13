@@ -26,6 +26,7 @@ import controlTypes
 import eventHandler
 import inputCore
 import keyboardHandler
+import mouseHandler
 import queueHandler
 import speech
 import synthDriverHandler
@@ -49,7 +50,7 @@ from NVDAObjects.window import Window
 from treeInterceptorHandler import TreeInterceptor
 from utils.security import isLockScreenModeActive
 
-from . import controlApproval, windows
+from . import controlApproval, mousePoint, screenCapture, windows
 from .actionLog import ActionLog
 from .bridge import BridgeError, Handler
 from .configSpec import CONFIG_SECTION, parseAllowedApps
@@ -70,6 +71,14 @@ MAX_TREE_NESTING = 100
 MAX_TEXT_LINES = 5000
 DELAY_BETWEEN_KEYS_SECONDS = 0.05
 ACCESS_PICTURE_ANSWER_SECONDS = 100
+# One notch of a mouse wheel.
+_WHEEL_DELTA = 120
+# The events that press and release each mouse button.
+_MOUSE_BUTTONS = {
+	"left": (winUser.MOUSEEVENTF_LEFTDOWN, winUser.MOUSEEVENTF_LEFTUP),
+	"right": (winUser.MOUSEEVENTF_RIGHTDOWN, winUser.MOUSEEVENTF_RIGHTUP),
+	"middle": (winUser.MOUSEEVENTF_MIDDLEDOWN, winUser.MOUSEEVENTF_MIDDLEUP),
+}
 # How long to wait after the user answers before taking the picture, so the dialog has left the screen.
 PICTURE_AFTER_DIALOG_SECONDS = 1.0
 FOCUS_RETURN_DELAY_SECONDS = 0.5
@@ -808,6 +817,10 @@ class NvdaActions:
 			"findInPage": self._findInPage,
 			"listElements": self.onMain(self._listElements),
 			"moveToElement": self._moveToElement,
+			"mouseClick": self._mouseClick,
+			"mouseScroll": self._mouseScroll,
+			"mouseMove": self._mouseMove,
+			"mouseDrag": self._mouseDrag,
 		}
 
 	def onMain(self, function: Callable[[dict[str, Any]], Any]) -> Handler:
@@ -1187,6 +1200,152 @@ class NvdaActions:
 
 	def foundObject(self, params: dict[str, Any]) -> NVDAObject:
 		return wxCallOnMain(self.foundObjectOnMain, params.get("id"))
+
+	def _mouseTarget(self, params: dict[str, Any], xKey: str = "x", yKey: str = "y") -> tuple[int, int, Any]:
+		"""The screen point of a mouse action and the control it is relative to, if any."""
+		obj = None
+		if params.get("id") is not None:
+			obj = self.foundObject(params)
+			location = wxCallOnMain(_safeGet, obj, "location")
+			area = tuple(location) if location else (0, 0, 0, 0)
+		elif params.get("window") is not None:
+			area = windows.windowRect(int(params["window"]))
+			if area is None:
+				raise BridgeError(
+					"noWindow", "That window has closed. Use nvda_list_windows to find it again."
+				)
+		else:
+			area = None
+		try:
+			x, y = mousePoint.resolvePoint(params, area, screenCapture.virtualScreen(), xKey, yKey)
+		except mousePoint.PointError as error:
+			raise BridgeError("badParams", str(error))
+		return x, y, obj
+
+	def _appAtPoint(self, x: int, y: int) -> str | None:
+		processId = windows.processAtPoint(x, y)
+		return self._appNameOfProcess(processId) if processId else None
+
+	def _objectAtPoint(self, x: int, y: int) -> dict[str, Any] | None:
+		def describe() -> dict[str, Any] | None:
+			obj = NVDAObject.objectFromPoint(x, y)
+			return describeObject(obj) if obj is not None else None
+
+		try:
+			return wxCallOnMain(describe)
+		except Exception:  # noqa: BLE001 - only a description; the action already happened
+			log.debugWarning("Could not describe the control under the mouse", exc_info=True)
+			return None
+
+	def _mouseClick(self, params: dict[str, Any]) -> dict[str, Any]:
+		self.ensureUnlocked()
+		x, y, obj = self._mouseTarget(params)
+		button = params.get("button", "left")
+		if button not in _MOUSE_BUTTONS:
+			raise BridgeError("badParams", f"button must be one of {', '.join(_MOUSE_BUTTONS)}.")
+		down, up = _MOUSE_BUTTONS[button]
+		clicks = 2 if params.get("double") else 1
+
+		def perform() -> None:
+			def click() -> None:
+				winUser.setCursorPos(x, y)
+				for _click in range(clicks):
+					mouseHandler.executeMouseEvent(down, 0, 0)
+					mouseHandler.executeMouseEvent(up, 0, 0)
+
+			wxCallOnMain(click)
+
+		result = self.runControlled(
+			"mouseClick",
+			{"point": [x, y], "button": button, "double": clicks == 2},
+			perform,
+			params,
+			targetApp=self._appAtPoint(x, y),
+			recordTarget=obj,
+		)
+		result["point"] = [x, y]
+		result["objectAtPoint"] = self._objectAtPoint(x, y)
+		return result
+
+	def _mouseScroll(self, params: dict[str, Any]) -> dict[str, Any]:
+		self.ensureUnlocked()
+		x, y, obj = self._mouseTarget(params)
+		direction = params.get("direction", "down")
+		if direction not in ("up", "down", "left", "right"):
+			raise BridgeError("badParams", "direction must be up, down, left or right.")
+		amount = min(max(int(params.get("amount", 3)), 1), 30)
+		flag = winUser.MOUSEEVENTF_WHEEL if direction in ("up", "down") else winUser.MOUSEEVENTF_HWHEEL
+		# Up and right are positive; one notch of a wheel is 120.
+		delta = _WHEEL_DELTA * amount * (1 if direction in ("up", "right") else -1)
+
+		def perform() -> None:
+			def scroll() -> None:
+				winUser.setCursorPos(x, y)
+				mouseHandler.executeMouseEvent(flag, 0, 0, delta)
+
+			wxCallOnMain(scroll)
+
+		result = self.runControlled(
+			"mouseScroll",
+			{"point": [x, y], "direction": direction, "amount": amount},
+			perform,
+			params,
+			targetApp=self._appAtPoint(x, y),
+			recordTarget=obj,
+		)
+		result["point"] = [x, y]
+		return result
+
+	def _mouseMove(self, params: dict[str, Any]) -> dict[str, Any]:
+		self.ensureUnlocked()
+		x, y, obj = self._mouseTarget(params)
+
+		def perform() -> None:
+			wxCallOnMain(winUser.setCursorPos, x, y)
+
+		result = self.runControlled(
+			"mouseMove",
+			{"point": [x, y]},
+			perform,
+			params,
+			targetApp=self._appAtPoint(x, y),
+			recordTarget=obj,
+		)
+		result["point"] = [x, y]
+		result["objectAtPoint"] = self._objectAtPoint(x, y)
+		return result
+
+	def _mouseDrag(self, params: dict[str, Any]) -> dict[str, Any]:
+		self.ensureUnlocked()
+		x, y, obj = self._mouseTarget(params)
+		toX, toY, _toObject = self._mouseTarget(params, "toX", "toY")
+		if params.get("toX") is None:
+			raise BridgeError(
+				"badParams", "Pass toX and toY, where to drag to, in the same terms as x and y."
+			)
+
+		def perform() -> None:
+			def drag() -> None:
+				winUser.setCursorPos(x, y)
+				mouseHandler.executeMouseEvent(winUser.MOUSEEVENTF_LEFTDOWN, 0, 0)
+				for stepX, stepY in mousePoint.dragSteps((x, y), (toX, toY)):
+					time.sleep(0.015)
+					winUser.setCursorPos(stepX, stepY)
+					mouseHandler.executeMouseEvent(winUser.MOUSEEVENTF_MOVE, 0, 0)
+				mouseHandler.executeMouseEvent(winUser.MOUSEEVENTF_LEFTUP, 0, 0)
+
+			wxCallOnMain(drag)
+
+		result = self.runControlled(
+			"mouseDrag",
+			{"from": [x, y], "to": [toX, toY]},
+			perform,
+			params,
+			targetApp=self._appAtPoint(x, y),
+			recordTarget=obj,
+		)
+		result["from"], result["to"] = [x, y], [toX, toY]
+		return result
 
 	def _focusObject(self, params: dict[str, Any]) -> dict[str, Any]:
 		self.ensureUnlocked()

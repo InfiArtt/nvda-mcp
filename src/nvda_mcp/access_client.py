@@ -10,6 +10,9 @@ import contextlib
 import json
 import os
 import ssl
+import tempfile
+import time
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -25,11 +28,22 @@ MAX_MESSAGE_BYTES = 9 * 1024 * 1024
 CONNECT_TIMEOUT_SECONDS = 20.0
 # The person being helped answers NVDA's question in this time.
 APPROVAL_TIMEOUT_SECONDS = 120.0
+# How long the inbox file stays after the other computer ends the session, for a monitor to read its last line.
+INBOX_KEPT_AFTER_END_SECONDS = 10.0
 
 
 def default_relay() -> str:
     """The relay to use; NVDA_MCP_ACCESS_RELAY points at another, such as an organisation's own."""
     return os.environ.get("NVDA_MCP_ACCESS_RELAY") or DEFAULT_RELAY
+
+
+def inbox_path() -> Path:
+    """Where this server writes the messages of its MCP Access session, one line each.
+
+    In the user's own temporary folder, which other Windows accounts cannot read. Claude Code can watch it with a
+    background monitor, so a message wakes the assistant.
+    """
+    return Path(tempfile.gettempdir()) / "nvda-mcp-access" / f"inbox-{os.getpid()}.txt"
 
 
 def tls_context() -> ssl.SSLContext:
@@ -59,6 +73,15 @@ class AccessClient:
         self._reader: asyncio.Task | None = None
         self._send_lock = asyncio.Lock()
         self.ended: str | None = None
+        self.messages: list[dict[str, Any]] = []
+        """Messages from the person being helped, oldest first: {"id", "text", "time"}."""
+        self.mode = "act"
+        """'act' lets the assistant act on their computer after they allow it; 'talk' only reads and talks."""
+        self.inbox: Path | None = None
+        """The file each message is also written to, while connected."""
+        self.noticed_id = 0
+        """The newest message the assistant was already shown, by nvda_access_messages or a notice."""
+        self._message_arrived = asyncio.Event()
 
     @property
     def is_connected(self) -> bool:
@@ -169,6 +192,18 @@ class AccessClient:
                     reason = "The other computer sent an unexpected message."
                     break
                 reply = json.loads(self._session.open(message))
+                if reply.get("type") == "message" and isinstance(reply.get("text"), str):
+                    message = {
+                        "id": len(self.messages) + 1,
+                        "text": reply["text"][:4000],
+                        "time": time.time(),
+                    }
+                    self.messages.append(message)
+                    self._message_arrived.set()
+                    # One line per message, so a monitor that reads lines wakes the assistant once for each.
+                    flat = " / ".join(line for line in message["text"].splitlines() if line.strip())
+                    self._write_inbox(f"MCP Access message {message['id']} from {self.computer_name}: {flat}")
+                    continue
                 future = self._pending.pop(reply.get("id"), None)
                 if future is not None and not future.done():
                     future.set_result(reply)
@@ -177,6 +212,10 @@ class AccessClient:
         except (ConnectionClosed, ValueError):
             pass
         self.ended = reason
+        self._message_arrived.set()
+        self._write_inbox(f"MCP Access session with {self.computer_name} ended: {reason}")
+        # A monitor has a moment to read the last line; then the conversation leaves the disk.
+        asyncio.get_running_loop().call_later(INBOX_KEPT_AFTER_END_SECONDS, self._remove_inbox)
         for future in self._pending.values():
             if not future.done():
                 future.set_exception(NvdaUnavailableError(reason))
@@ -205,9 +244,47 @@ class AccessClient:
             raise NvdaBridgeError(error.get("code", "unknown"), error.get("message", "Unknown error."))
         return reply.get("result")
 
+    async def wait_for_messages(self, after_id: int, wait_seconds: float) -> list[dict[str, Any]]:
+        """Messages newer than after_id, waiting up to wait_seconds for one if there are none yet."""
+        deadline = asyncio.get_running_loop().time() + wait_seconds
+        while True:
+            newer = [message for message in self.messages if message["id"] > after_id]
+            remaining = deadline - asyncio.get_running_loop().time()
+            if newer or remaining <= 0 or self.ended is not None:
+                return newer
+            self._message_arrived.clear()
+            try:
+                await asyncio.wait_for(self._message_arrived.wait(), remaining)
+            except TimeoutError:
+                pass
+
+    def open_inbox(self) -> None:
+        """Start a new, empty inbox file for this session."""
+        path = inbox_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("", encoding="utf-8")
+        except OSError:
+            return
+        self.inbox = path
+
+    def _write_inbox(self, line: str) -> None:
+        if self.inbox is None:
+            return
+        with contextlib.suppress(OSError), self.inbox.open("a", encoding="utf-8") as file:
+            file.write(line + "\n")
+
+    def _remove_inbox(self) -> None:
+        # The conversation does not stay on disk after the session.
+        if self.inbox is not None:
+            with contextlib.suppress(OSError):
+                self.inbox.unlink()
+            self.inbox = None
+
     async def close(self) -> None:
         if self.ended is None:
             self.ended = "You disconnected."
+        self._remove_inbox()
         if self._reader is not None:
             self._reader.cancel()
         if self._connection is not None:

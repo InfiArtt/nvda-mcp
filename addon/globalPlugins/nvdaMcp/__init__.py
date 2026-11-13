@@ -18,6 +18,7 @@ import config
 import controlTypes
 import globalPluginHandler
 import globalVars
+import tones
 import ui
 import wx
 from gui import guiHelper, mainFrame, nvdaControls
@@ -30,6 +31,7 @@ from speech.extensions import pre_speech
 from speech.types import SpeechSequence
 
 from . import accessShare
+from .accessWindow import AccessWindow
 from .actionLog import ActionLog
 from .bridge import PROTOCOL_VERSION, Bridge
 from .configSpec import CONFIG_SECTION, CONFIG_SPEC
@@ -300,6 +302,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		global _plugin
 		self._bridge: Bridge | None = None
 		self._share: accessShare.ShareSession | None = None
+		self._accessWindow: AccessWindow | None = None
 		if globalVars.appArgs.secure:
 			# Never expose the secure desktop (sign-in, UAC) to another process.
 			return
@@ -320,6 +323,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._devTools.unregister()
 			NVDASettingsDialog.categoryClasses.remove(NvdaMcpSettingsPanel)
 			self._stopSharing()
+			if self._accessWindow is not None:
+				self._accessWindow.Destroy()
+				self._accessWindow = None
 			self._stopBridge()
 			_plugin = None
 		super().terminate()
@@ -429,12 +435,34 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return
 		self._stopSharing()
 
+	@script(
+		# Translators: Describes a command in the Input Gestures dialog. The MCP Access window shows the
+		# conversation with the helper, a field to answer them, and a button to stop sharing.
+		description=_("Opens the MCP Access window, to talk with your helper"),
+		category=SCRCAT_NVDA_MCP,
+	)
+	def script_openAccessWindow(self, gesture) -> None:
+		if self._share is None:
+			# Translators: Reported when the user opens the MCP Access window before sharing.
+			ui.message(_("This computer is not being shared. Use the share command first."))
+			return
+		wx.CallAfter(self._showAccessWindow)
+
+	def _showAccessWindow(self) -> None:
+		if self._accessWindow is None or self._accessWindow.share is not self._share:
+			if self._accessWindow is not None:
+				self._accessWindow.Destroy()
+			self._accessWindow = AccessWindow(mainFrame, self._share, self._stopSharing)
+		self._accessWindow.show()
+
 	def _stopSharing(self) -> None:
 		if self._share is not None:
 			self._share.stop()
 
 	def _onShareEvent(self, event: str, details: dict) -> None:
 		"""What the sharing session reports, said to the user. Runs on the main thread."""
+		if self._accessWindow is not None and self._accessWindow.share is self._share:
+			self._accessWindow.refresh()
 		if event == "waiting":
 			api.copyToClip(details["code"])
 			ui.message(
@@ -448,9 +476,17 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._logAccess("mcpAccessConnected", details["helper"])
 			ui.message(
 				# Translators: Reported when a helper connects through MCP Access.
-				_("{helper} is connected through MCP Access. Use the stop sharing command to end it.").format(
-					helper=details["helper"]
-				),
+				_(
+					"{helper} is connected through MCP Access. The MCP Access window has your conversation."
+				).format(helper=details["helper"]),
+			)
+		elif event == "message":
+			# A sound first, so a message from the helper is never taken for something NVDA itself says.
+			tones.beep(880, 60)
+			tones.beep(1320, 80)
+			ui.message(
+				# Translators: A message from the MCP Access helper. {helper} is their name; {text} what they wrote.
+				_("Message from {helper}: {text}").format(helper=details["helper"], text=details["text"])
 			)
 		elif event == "ended":
 			if details.get("helper"):
