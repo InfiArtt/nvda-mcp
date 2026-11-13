@@ -8,6 +8,8 @@ install them together.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-14
+
 What is new, in short: MCP Access now works both ways, with one window for the person being helped, and in
 Claude Code their messages can wake the helper's assistant. The assistant can use the mouse, for what the
 keyboard cannot reach. MCP Access is in early access: free for now, and it may change.
