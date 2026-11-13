@@ -172,6 +172,8 @@ picture of their screen, say what you will do and why: NVDA asks them the first 
 hear every key. If they decline, guide them to do it themselves instead.
 4. Never ask for passwords, codes or other secrets, and do not read private content aloud to the user unless \
 it is needed for the help.
-5. When done, or when they want to stop, call nvda_access_disconnect.
+5. Talk with them: nvda_access_send_message says a message on their computer, and they answer with an NVDA \
+command; wait for answers with nvda_access_messages and wait_seconds instead of asking again and again.
+6. When done, or when they want to stop, call nvda_access_disconnect.
 
 Always make clear whose computer you are describing. {COMMON}"""

@@ -151,6 +151,7 @@ Commands in Input Gestures, NVDA MCP category (no keys assigned by default):
   the controls in the window and what NVDA said last. It works without an MCP client.
 - Share this computer with a helper through MCP Access, or say who is connected.
 - Stop sharing this computer through MCP Access.
+- Send a message to the helper connected through MCP Access, and read the latest messages again.
 
 How the connection is protected:
 
@@ -177,11 +178,16 @@ or subscription.
    It says the name they gave and a short session check you can compare with them.
 4. If they want to press keys, or take pictures of your screen to see what something looks like, NVDA asks you
    again, once for each of these in this session. You hear every key.
-5. Use *Stops sharing this computer through MCP Access* at any time. Sharing also ends after two hours.
+5. Talk with your helper while they work: their messages play a sound and are spoken as messages from them.
+   *Sends a message to the helper connected through MCP Access* lets you answer, and *Reads the latest messages
+   of the MCP Access session again* repeats the last five.
+6. Use *Stops sharing this computer through MCP Access* at any time. Sharing also ends after two hours.
 
 **To help someone:** paste the code they sent into your assistant, for example
 "help my friend, the code is K7Q4-9XMC-4TRW-PH3N-AD6F". Your assistant connects with `nvda_access_connect`;
-every NVDA tool then works on their computer until `nvda_access_disconnect`. Or choose the ready-made prompt
+every NVDA tool then works on their computer until `nvda_access_disconnect`. Your assistant can ask them
+questions with `nvda_access_send_message` and wait for their answer with `nvda_access_messages`.
+Or choose the ready-made prompt
 `help_someone` and paste the code: it also tells the assistant to say before it acts, never to ask for
 passwords, and to disconnect when done. The code is safe to paste: it works once and expires after 10 minutes.
 
@@ -243,7 +249,7 @@ The assistant sees these tools:
 | `nvda_get_text` | Full text of a document, web page or edit field, plus the caret line; or only the lines containing some text |
 | `nvda_get_speech_history` | What NVDA said, with ids for polling and a text filter |
 | `nvda_wait_for_speech` | Wait until NVDA says something, such as a chat reply |
-| `nvda_list_windows` | Open application windows, including ones on other virtual desktops if asked |
+| `nvda_list_windows` | Open application windows, including ones that belong to another window, and ones on other virtual desktops if asked |
 | `nvda_speak` | Say something through NVDA's speech and braille |
 | `nvda_press_keys` | Press keys, optionally holding modifiers, then report what NVDA said and where focus went |
 | `nvda_type_text` | Type a line of text in any language, emoji included, without using the clipboard |
@@ -258,6 +264,8 @@ The assistant sees these tools:
 | `nvda_get_action_log` | The newest entries of the log of actions clients took |
 | `nvda_audit_focus_order` | Tab through a window and report unlabeled controls, silent controls, duplicate names, keyboard traps |
 | `nvda_access_connect` | Help someone through MCP Access: connect to their NVDA with the code they sent, after they allow it |
+| `nvda_access_send_message` | Say a message on the computer of the person you help; NVDA keeps it for them to hear again |
+| `nvda_access_messages` | Read the messages the person you help sent you, waiting for an answer if asked |
 | `nvda_access_disconnect` | End the MCP Access session, so the tools work on this computer again |
 | `nvda_recognize_text` | Read the text on the screen in a window or control with Windows' text recognition (OCR), line by line, when NVDA cannot read it |
 

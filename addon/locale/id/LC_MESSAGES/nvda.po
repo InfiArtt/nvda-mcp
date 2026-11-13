@@ -383,3 +383,47 @@ msgstr ""
 "catatan aksi.\n"
 "\n"
 "Izinkan untuk sesi MCP Access ini saja?"
+
+#. Translators: Describes a command in the Input Gestures dialog.
+msgid "Sends a message to the helper connected through MCP Access"
+msgstr "Mengirim pesan ke penolong yang tersambung lewat MCP Access"
+
+#. Translators: Reported when the user wants to message a helper but none is connected.
+msgid "No helper is connected through MCP Access"
+msgstr "Tidak ada penolong yang tersambung lewat MCP Access"
+
+#. Translators: The label of the text field for a message to the MCP Access helper.
+msgid "Message to {helper}:"
+msgstr "Pesan untuk {helper}:"
+
+#. Translators: The title of the dialog for writing a message to the MCP Access helper.
+msgid "NVDA MCP: message your helper"
+msgstr "NVDA MCP: kirim pesan ke penolong"
+
+#. Translators: Reported when a message to the MCP Access helper could not be sent.
+msgid "The message could not be sent: {error}"
+msgstr "Pesan tidak dapat dikirim: {error}"
+
+#. Translators: Reported after a message to the MCP Access helper was sent.
+msgid "Message sent"
+msgstr "Pesan terkirim"
+
+#. Translators: Describes a command in the Input Gestures dialog.
+msgid "Reads the latest messages of the MCP Access session again"
+msgstr "Membacakan lagi pesan terakhir di sesi MCP Access"
+
+#. Translators: Reported when there are no MCP Access messages to read.
+msgid "No MCP Access messages"
+msgstr "Belum ada pesan MCP Access"
+
+#. Translators: A message from the MCP Access helper, read again. {helper} is their name.
+msgid "{helper} said: {text}"
+msgstr "{helper} bilang: {text}"
+
+#. Translators: A message the user sent to their MCP Access helper, read again.
+msgid "You said: {text}"
+msgstr "Anda bilang: {text}"
+
+#. Translators: A message from the MCP Access helper. {helper} is their name; {text} what they wrote.
+msgid "Message from {helper}: {text}"
+msgstr "Pesan dari {helper}: {text}"

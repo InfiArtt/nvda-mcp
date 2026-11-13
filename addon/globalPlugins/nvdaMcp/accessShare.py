@@ -39,6 +39,12 @@ CODE_LIFETIME_SECONDS = 10 * 60
 MAX_SESSION_SECONDS = 2 * 60 * 60
 CONNECT_TIMEOUT_SECONDS = 15
 MAX_FRAME_BYTES = 9 * 1024 * 1024
+# Messages between the two people: long enough for an explanation, short enough to hear.
+MAX_MESSAGE_CHARACTERS = 2000
+# A helper may send this many messages a minute, so their messages cannot drown out NVDA.
+MAX_HELPER_MESSAGES_PER_MINUTE = 20
+# The messages of a session kept for the user to read again.
+MAX_KEPT_MESSAGES = 50
 
 # What a helper may ask for: reading, and, after the user says yes for the session, pressing keys and taking
 # pictures of the screen. Left out: reloading or running add-on code, NVDA's log and settings, and the browser's
@@ -281,9 +287,15 @@ class ShareSession:
 		self._addonVersion = addonVersion
 		self._protocolVersion = protocolVersion
 		self._socket: WebSocket | None = None
+		self._session: accessCrypto.Session | None = None
+		# Sealing numbers each message, so the answering thread and the user's messages take turns.
+		self._sendLock = threading.Lock()
 		self._stopped = threading.Event()
 		self._thread: threading.Thread | None = None
+		self._helperMessageTimes: list[float] = []
 		self.helperName: str | None = None
+		#: The messages of this session, oldest first: {"from": "helper" or "me", "text": ..., "time": ...}.
+		self.messages: list[dict[str, Any]] = []
 
 	def start(self) -> None:
 		self._thread = threading.Thread(target=self._run, name="nvdaMcpAccess", daemon=True)
@@ -297,6 +309,31 @@ class ShareSession:
 	@property
 	def isRunning(self) -> bool:
 		return self._thread is not None and self._thread.is_alive()
+
+	@property
+	def isConnected(self) -> bool:
+		return self.isRunning and self._session is not None
+
+	def sendMessage(self, text: str) -> None:
+		"""Send the helper a message from the person being helped. Safe to call from any thread.
+
+		:raises AccessShareError: When no helper is connected, or the message is empty.
+		"""
+		text = text.strip()[:MAX_MESSAGE_CHARACTERS]
+		if not text:
+			raise AccessShareError("The message is empty.")
+		if not self.isConnected:
+			raise AccessShareError("No helper is connected.")
+		self._keep({"from": "me", "text": text, "time": time.time()})
+		self._sendSealed({"type": "message", "text": text})
+
+	def _keep(self, message: dict[str, Any]) -> None:
+		self.messages.append(message)
+		del self.messages[:-MAX_KEPT_MESSAGES]
+
+	def _sendSealed(self, value: dict[str, Any]) -> None:
+		with self._sendLock:
+			self._socket.send(self._session.seal(json.dumps(value, ensure_ascii=False).encode("utf-8")))
 
 	def _run(self) -> None:
 		reason, kind = "stopped", "stopped"
@@ -352,6 +389,7 @@ class ShareSession:
 			socket_.send(session_.seal(json.dumps({"type": "refused"}).encode("utf-8")))
 			raise AccessShareError("You did not allow the helper to connect.", "declined")
 		socket_.send(session_.seal(json.dumps({"type": "approved"}).encode("utf-8")))
+		self._session = session_
 		self._onEvent("connected", {"helper": self.helperName, "fingerprint": session_.fingerprint})
 		self._answerRequests(socket_, session_)
 
@@ -380,7 +418,7 @@ class ShareSession:
 				raise AccessShareError("The helper sent an unexpected message.")
 			request = json.loads(session.open(message))
 			response = self._answer(request)
-			socket_.send(session.seal(json.dumps(response, ensure_ascii=False).encode("utf-8")))
+			self._sendSealed(response)
 
 	def _answer(self, request: dict[str, Any]) -> dict[str, Any]:
 		requestId = request.get("id")
@@ -392,6 +430,8 @@ class ShareSession:
 				"ok": False,
 				"error": {"code": "badRequest", "message": "Malformed request."},
 			}
+		if method == "accessMessage":
+			return {"id": requestId, **self._receiveHelperMessage(params)}
 		if method not in ALLOWED_METHODS:
 			return {
 				"id": requestId,
@@ -406,6 +446,27 @@ class ShareSession:
 		params["clientName"] = f"{self.helperName} through MCP Access"
 		params["viaAccess"] = self.sessionId
 		return {"id": requestId, **self._dispatch(method, params)}
+
+	def _receiveHelperMessage(self, params: dict[str, Any]) -> dict[str, Any]:
+		"""A message from the helper to the person being helped: kept, and said with who sent it."""
+		text = params.get("text")
+		if not isinstance(text, str) or not text.strip():
+			return {"ok": False, "error": {"code": "badParams", "message": "Pass text, the message to send."}}
+		now = time.monotonic()
+		self._helperMessageTimes = [sent for sent in self._helperMessageTimes if now - sent < 60]
+		if len(self._helperMessageTimes) >= MAX_HELPER_MESSAGES_PER_MINUTE:
+			return {
+				"ok": False,
+				"error": {
+					"code": "tooManyMessages",
+					"message": "Too many messages in a minute. Wait for them to answer.",
+				},
+			}
+		self._helperMessageTimes.append(now)
+		message = {"from": "helper", "text": _cleanText(text), "time": time.time()}
+		self._keep(message)
+		self._onEvent("message", {"helper": self.helperName, "text": message["text"]})
+		return {"ok": True, "result": {"delivered": True}}
 
 	def _expectRelay(self, socket_: WebSocket, expected: str) -> None:
 		message = socket_.receive()
@@ -432,6 +493,12 @@ class ShareSession:
 		if not isinstance(value, dict):
 			raise AccessShareError("The helper sent an unexpected message.")
 		return value
+
+
+def _cleanText(text: str) -> str:
+	"""A message made safe to speak: printable characters, line breaks kept, at most MAX_MESSAGE_CHARACTERS."""
+	lines = ("".join(char for char in line if char.isprintable()) for line in text.strip().splitlines())
+	return "\n".join(line for line in lines if line.strip())[:MAX_MESSAGE_CHARACTERS]
 
 
 def _cleanName(name: Any) -> str:

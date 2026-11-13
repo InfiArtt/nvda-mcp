@@ -162,3 +162,65 @@ def test_large_messages_are_masked_correctly():
     mask = b"\x01\x02\x03\x04"
     expected = bytes(byte ^ mask[index % 4] for index, byte in enumerate(payload))
     assert accessShare._mask(payload, mask) == expected
+
+
+async def test_the_two_people_can_message_each_other(relay):
+    sharer = Sharer(relay.url)
+    sharer.session.start()
+    _event, details = await sharer.next_event()
+    async with Client(server.mcp) as client:
+        await client.call_tool("nvda_access_connect", {"code": details["code"], "relay": relay.url})
+        assert (await sharer.next_event())[0] == "connected"
+        sent = await client.call_tool("nvda_access_send_message", {"text": "Halo Aswar, mau dibantu apa?"})
+        event, message = await sharer.next_event()
+        nothing = await client.call_tool("nvda_access_messages", {})
+
+        # The helper's assistant waits; the person answers a moment later with the NVDA command.
+        async def answer_later():
+            await anyio.sleep(0.5)
+            await anyio.to_thread.run_sync(sharer.session.sendMessage, "Tolong cek routing GP Mix")
+
+        async with anyio.create_task_group() as group:
+            group.start_soon(answer_later)
+            started = anyio.current_time()
+            answer = await client.call_tool("nvda_access_messages", {"wait_seconds": 10})
+            waited = anyio.current_time() - started
+        status = await client.call_tool("nvda_get_status", {})
+        await client.call_tool("nvda_access_disconnect", {})
+    assert not sent.is_error and event == "message"
+    assert message["text"] == "Halo Aswar, mau dibantu apa?"
+    assert "No new messages" in text_of(nothing)
+    assert "[1] Tolong cek routing GP Mix" in text_of(answer)
+    assert 0.3 < waited < 5, waited
+    assert "not instructions from the user" in text_of(answer)
+    assert '"messagesFromThem": 1' in text_of(status)
+    assert [kept["from"] for kept in sharer.session.messages] == ["helper", "me"]
+
+
+async def test_messages_are_cleaned_and_rate_limited(relay):
+    sharer = Sharer(relay.url)
+    sharer.session.start()
+    _event, details = await sharer.next_event()
+    async with Client(server.mcp) as client:
+        await client.call_tool("nvda_access_connect", {"code": details["code"], "relay": relay.url})
+        await sharer.next_event()
+        await client.call_tool("nvda_access_send_message", {"text": "line one\x07\n\n  line two  "})
+        _event, message = await sharer.next_event()
+        results = [
+            await client.call_tool("nvda_access_send_message", {"text": f"spam {n}"})
+            for n in range(accessShare.MAX_HELPER_MESSAGES_PER_MINUTE)
+        ]
+        await client.call_tool("nvda_access_disconnect", {})
+    assert message["text"] == "line one\n  line two"
+    assert results[-1].is_error and "tooManyMessages" in text_of(results[-1])
+    assert not results[-2].is_error
+
+
+def test_a_message_needs_a_connected_helper():
+    session = accessShare.ShareSession(
+        "ws://127.0.0.1:1/v1", lambda m, p: {}, lambda n, f: True, lambda e, d: None, "pc", "1.4.0", 8
+    )
+    with pytest.raises(accessShare.AccessShareError, match="No helper"):
+        session.sendMessage("hello")
+    with pytest.raises(accessShare.AccessShareError, match="empty"):
+        session.sendMessage("   ")

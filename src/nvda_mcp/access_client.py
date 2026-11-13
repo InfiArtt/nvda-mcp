@@ -10,6 +10,7 @@ import contextlib
 import json
 import os
 import ssl
+import time
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -59,6 +60,9 @@ class AccessClient:
         self._reader: asyncio.Task | None = None
         self._send_lock = asyncio.Lock()
         self.ended: str | None = None
+        self.messages: list[dict[str, Any]] = []
+        """Messages from the person being helped, oldest first: {"id", "text", "time"}."""
+        self._message_arrived = asyncio.Event()
 
     @property
     def is_connected(self) -> bool:
@@ -169,6 +173,12 @@ class AccessClient:
                     reason = "The other computer sent an unexpected message."
                     break
                 reply = json.loads(self._session.open(message))
+                if reply.get("type") == "message" and isinstance(reply.get("text"), str):
+                    self.messages.append(
+                        {"id": len(self.messages) + 1, "text": reply["text"][:4000], "time": time.time()}
+                    )
+                    self._message_arrived.set()
+                    continue
                 future = self._pending.pop(reply.get("id"), None)
                 if future is not None and not future.done():
                     future.set_result(reply)
@@ -177,6 +187,7 @@ class AccessClient:
         except (ConnectionClosed, ValueError):
             pass
         self.ended = reason
+        self._message_arrived.set()
         for future in self._pending.values():
             if not future.done():
                 future.set_exception(NvdaUnavailableError(reason))
@@ -204,6 +215,20 @@ class AccessClient:
             error = reply.get("error") or {}
             raise NvdaBridgeError(error.get("code", "unknown"), error.get("message", "Unknown error."))
         return reply.get("result")
+
+    async def wait_for_messages(self, after_id: int, wait_seconds: float) -> list[dict[str, Any]]:
+        """Messages newer than after_id, waiting up to wait_seconds for one if there are none yet."""
+        deadline = asyncio.get_running_loop().time() + wait_seconds
+        while True:
+            newer = [message for message in self.messages if message["id"] > after_id]
+            remaining = deadline - asyncio.get_running_loop().time()
+            if newer or remaining <= 0 or self.ended is not None:
+                return newer
+            self._message_arrived.clear()
+            try:
+                await asyncio.wait_for(self._message_arrived.wait(), remaining)
+            except TimeoutError:
+                pass
 
     async def close(self) -> None:
         if self.ended is None:
