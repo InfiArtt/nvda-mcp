@@ -20,6 +20,18 @@ install them together.
   Messages are end-to-end encrypted like the rest of the session, at most 2000 characters, and a helper may
   send at most 20 a minute.
 
+- Mouse tools for what the keyboard cannot reach, such as buttons and knobs drawn on an audio plugin's canvas:
+  `nvda_mouse_click` (left, right, middle, double), `nvda_mouse_scroll`, `nvda_mouse_hover` and
+  `nvda_mouse_drag`. They aim at a control (its middle, or a point counted from its top left), a window, or the
+  screen, refuse points outside the control or off the screen, and go through the same checks as key presses.
+  Click and hover say what is under the mouse.
+- The person being helped sees the helper's assistant as "*name* (AI assistant)" (`helper_name` in
+  `nvda_access_connect`), so they always know an AI is talking to them.
+- MCP Access writes each message to a small inbox file in the helper's own temporary folder, deleted when the
+  session ends, so a background monitor in Claude Code can wake the assistant when the person writes.
+- Talk mode (`nvda_access_connect` and `nvda_access_set_mode`): the helper's assistant only reads and talks,
+  without acting on the person's computer.
+
 ### Fixed
 
 - `nvda_list_windows` also lists windows that belong to another window, such as REAPER's FX windows, with the

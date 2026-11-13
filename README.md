@@ -190,7 +190,10 @@ or subscription.
 "help my friend, the code is K7Q4-9XMC-4TRW-PH3N-AD6F". Your assistant connects with `nvda_access_connect`;
 every NVDA tool then works on their computer until `nvda_access_disconnect`. Your assistant can ask them
 questions with `nvda_access_send_message` and wait for their answer with `nvda_access_messages`; a message
-that arrives while it does something else comes with its next result.
+that arrives while it does something else comes with its next result. The person sees your assistant as
+"*your name* (AI assistant)", so they always know an AI is talking to them. In Claude Code, your assistant can
+watch a small inbox file so that their messages wake it even when you are away; choose talk mode
+(`nvda_access_set_mode`) if it should then only read and talk, not act.
 Or choose the ready-made prompt
 `help_someone` and paste the code: it also tells the assistant to say before it acts, never to ask for
 passwords, and to disconnect when done. The code is safe to paste: it works once and expires after 10 minutes.
@@ -257,6 +260,10 @@ The assistant sees these tools:
 | `nvda_speak` | Say something through NVDA's speech and braille |
 | `nvda_press_keys` | Press keys, optionally holding modifiers, then report what NVDA said and where focus went |
 | `nvda_type_text` | Type a line of text in any language, emoji included, without using the clipboard |
+| `nvda_mouse_click` | Click, right-click or double-click a control, a point in it (such as a knob on a plugin's canvas), a window or the screen |
+| `nvda_mouse_scroll` | Turn the mouse wheel over a point, to scroll or turn a knob |
+| `nvda_mouse_hover` | Move the mouse over something, to show its tooltip, and say what is under it |
+| `nvda_mouse_drag` | Drag from one point to another, such as a fader drawn on a canvas |
 | `nvda_set_value` | Experimental: give an edit field new text through the accessibility API, even in a background window |
 | `nvda_activate_window` | Bring a window to the front by title or handle |
 | `nvda_focus_object` | Move focus to a control found with `nvda_find_objects` |
@@ -270,6 +277,7 @@ The assistant sees these tools:
 | `nvda_access_connect` | Help someone through MCP Access: connect to their NVDA with the code they sent, after they allow it |
 | `nvda_access_send_message` | Say a message on the computer of the person you help; NVDA keeps it for them to hear again |
 | `nvda_access_messages` | Read the messages the person you help sent you, waiting for an answer if asked |
+| `nvda_access_set_mode` | Let your assistant act on their computer (after they allow it), or only read and talk |
 | `nvda_access_disconnect` | End the MCP Access session, so the tools work on this computer again |
 | `nvda_recognize_text` | Read the text on the screen in a window or control with Windows' text recognition (OCR), line by line, when NVDA cannot read it |
 

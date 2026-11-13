@@ -244,3 +244,35 @@ async def test_new_messages_come_with_the_next_tool_result_once(relay):
     assert "New message from the person at Aswar's laptop" in texts[-1] and "kamu disana? halo?" in texts[-1]
     assert not any("New message" in content.text for content in second.content)
     assert "No new messages" in text_of(nothing_new)
+
+
+async def test_the_inbox_wakes_a_monitor_and_talk_mode_refuses_actions(relay):
+    sharer = Sharer(relay.url)
+    sharer.session.start()
+    _event, details = await sharer.next_event()
+    async with Client(server.mcp) as client:
+        connected = await client.call_tool(
+            "nvda_access_connect",
+            {"code": details["code"], "relay": relay.url, "helper_name": "Rafli", "mode": "talk"},
+        )
+        assert (await sharer.next_event())[0] == "connected"
+        inbox = server._access.inbox
+        await anyio.to_thread.run_sync(sharer.session.sendMessage, "halo\nada yang bisa dibantu?")
+        await anyio.sleep(0.3)
+        lines = inbox.read_text(encoding="utf-8").splitlines()
+        refused = await client.call_tool("nvda_press_keys", {"keys": ["tab"]})
+        reading = await client.call_tool("nvda_get_focus", {})
+        await client.call_tool("nvda_access_set_mode", {"mode": "act"})
+        allowed = await client.call_tool("nvda_press_keys", {"keys": ["tab"]})
+        await client.call_tool("nvda_access_disconnect", {})
+    # The person being helped is told an AI is talking to them, and for whom.
+    assert sharer.asked[0][0] == "Rafli (AI assistant)"
+    assert "as Rafli (AI assistant), in talk mode" in text_of(connected)
+    assert inbox.as_posix() in text_of(connected) and "tail -n 0 -F" in text_of(connected)
+    assert lines == ["MCP Access message 1 from Aswar's laptop: halo / ada yang bisa dibantu?"]
+    assert refused.is_error and "talk mode" in text_of(refused)
+    assert not reading.is_error
+    # In act mode the request reaches their computer, whose own checks decide.
+    assert allowed.is_error and "controlDisabled" in text_of(allowed)
+    # The conversation does not stay on disk after the session.
+    assert not inbox.exists()

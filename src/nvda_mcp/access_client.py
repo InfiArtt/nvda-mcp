@@ -10,7 +10,9 @@ import contextlib
 import json
 import os
 import ssl
+import tempfile
 import time
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -31,6 +33,15 @@ APPROVAL_TIMEOUT_SECONDS = 120.0
 def default_relay() -> str:
     """The relay to use; NVDA_MCP_ACCESS_RELAY points at another, such as an organisation's own."""
     return os.environ.get("NVDA_MCP_ACCESS_RELAY") or DEFAULT_RELAY
+
+
+def inbox_path() -> Path:
+    """Where this server writes the messages of its MCP Access session, one line each.
+
+    In the user's own temporary folder, which other Windows accounts cannot read. Claude Code can watch it with a
+    background monitor, so a message wakes the assistant.
+    """
+    return Path(tempfile.gettempdir()) / "nvda-mcp-access" / f"inbox-{os.getpid()}.txt"
 
 
 def tls_context() -> ssl.SSLContext:
@@ -62,6 +73,10 @@ class AccessClient:
         self.ended: str | None = None
         self.messages: list[dict[str, Any]] = []
         """Messages from the person being helped, oldest first: {"id", "text", "time"}."""
+        self.mode = "act"
+        """'act' lets the assistant act on their computer after they allow it; 'talk' only reads and talks."""
+        self.inbox: Path | None = None
+        """The file each message is also written to, while connected."""
         self.noticed_id = 0
         """The newest message the assistant was already shown, by nvda_access_messages or a notice."""
         self._message_arrived = asyncio.Event()
@@ -176,10 +191,16 @@ class AccessClient:
                     break
                 reply = json.loads(self._session.open(message))
                 if reply.get("type") == "message" and isinstance(reply.get("text"), str):
-                    self.messages.append(
-                        {"id": len(self.messages) + 1, "text": reply["text"][:4000], "time": time.time()}
-                    )
+                    message = {
+                        "id": len(self.messages) + 1,
+                        "text": reply["text"][:4000],
+                        "time": time.time(),
+                    }
+                    self.messages.append(message)
                     self._message_arrived.set()
+                    # One line per message, so a monitor that reads lines wakes the assistant once for each.
+                    flat = " / ".join(line for line in message["text"].splitlines() if line.strip())
+                    self._write_inbox(f"MCP Access message {message['id']} from {self.computer_name}: {flat}")
                     continue
                 future = self._pending.pop(reply.get("id"), None)
                 if future is not None and not future.done():
@@ -190,6 +211,7 @@ class AccessClient:
             pass
         self.ended = reason
         self._message_arrived.set()
+        self._write_inbox(f"MCP Access session with {self.computer_name} ended: {reason}")
         for future in self._pending.values():
             if not future.done():
                 future.set_exception(NvdaUnavailableError(reason))
@@ -232,9 +254,30 @@ class AccessClient:
             except TimeoutError:
                 pass
 
+    def open_inbox(self) -> None:
+        """Start a new, empty inbox file for this session."""
+        path = inbox_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("", encoding="utf-8")
+        except OSError:
+            return
+        self.inbox = path
+
+    def _write_inbox(self, line: str) -> None:
+        if self.inbox is None:
+            return
+        with contextlib.suppress(OSError), self.inbox.open("a", encoding="utf-8") as file:
+            file.write(line + "\n")
+
     async def close(self) -> None:
         if self.ended is None:
             self.ended = "You disconnected."
+        if self.inbox is not None:
+            # The conversation does not stay on disk after the session.
+            with contextlib.suppress(OSError):
+                self.inbox.unlink()
+            self.inbox = None
         if self._reader is not None:
             self._reader.cancel()
         if self._connection is not None:

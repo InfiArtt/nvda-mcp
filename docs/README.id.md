@@ -202,7 +202,10 @@ tanpa asisten AI, akun, atau langganan.
 "bantu temanku, kodenya K7Q4-9XMC-4TRW-PH3N-AD6F". Asisten tersambung dengan `nvda_access_connect`, lalu semua
 alat NVDA bekerja di komputer mereka sampai `nvda_access_disconnect`. Asisten bisa bertanya kepada mereka dengan
 `nvda_access_send_message` dan menunggu jawabannya dengan `nvda_access_messages`; pesan yang datang selagi
-asisten mengerjakan hal lain ikut muncul di hasil berikutnya.
+asisten mengerjakan hal lain ikut muncul di hasil berikutnya. Orang yang dibantu melihat asisten Anda sebagai
+"*nama Anda* (AI assistant)", jadi mereka selalu tahu yang berbicara adalah AI. Di Claude Code, asisten bisa
+memantau file kotak masuk kecil supaya pesan mereka membangunkannya walaupun Anda sedang pergi; pilih mode talk
+(`nvda_access_set_mode`) kalau asisten saat itu hanya boleh membaca dan mengobrol, tidak bertindak.
 Atau pilih prompt siap pakai
 `help_someone` dan tempel kodenya: prompt itu juga meminta asisten bilang dulu sebelum bertindak, tidak pernah
 meminta kata sandi, dan memutus sambungan setelah selesai. Kode aman ditempel: hanya sekali pakai dan kedaluwarsa

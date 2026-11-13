@@ -163,7 +163,9 @@ def help_someone(code: str, problem: str | None) -> str:
     about = f' They need help with: "{problem}".' if problem else ""
     return f"""Help someone through MCP Access with the code they sent: {code}{about}
 
-1. Connect with nvda_access_connect and this code. NVDA on their computer asks them to allow it; tell the user \
+1. Connect with nvda_access_connect and this code, with helper_name set to the name of the user you work for, \
+so they know an AI is talking to them. If you work in Claude Code, start the background monitor its answer \
+suggests, so their messages wake you. NVDA on their computer asks them to allow it; tell the user \
 you are waiting for that answer. If the code was used already or expired, ask for a new one.
 2. Once connected, every NVDA tool works on their computer, not the user's. Start with nvda_get_status, \
 nvda_get_focus and nvda_get_object_tree to see where they are, and nvda_get_speech_history for what they heard.

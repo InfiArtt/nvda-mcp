@@ -189,6 +189,11 @@ _access: AccessClient | None = None
 async def _call(method: str, params: dict[str, Any] | None = None, timeout: float | None = None) -> Any:
     """Call the bridge, or the computer being helped, turning failures into tool errors the model can act on."""
     client = _access if _access is not None else _client
+    if _access is not None and getattr(_access, "mode", "act") == "talk" and method in _ACCESS_ACTIONS:
+        raise ToolError(
+            "MCP Access is in talk mode: you may read their screen and send messages, not act on it. Explain what "
+            "to do instead, or ask the user you work for to allow actions (nvda_access_set_mode)."
+        )
     try:
         if timeout is None:
             return await client.call(method, params)
@@ -311,6 +316,26 @@ async def nvda_access_connect(
         str | None,
         Field(description="Another relay's address (wss://...), only if the person shared through it."),
     ] = None,
+    helper_name: Annotated[
+        str | None,
+        Field(
+            max_length=40,
+            description=(
+                "The name of the user you work for, such as Rafli. They see it as 'Rafli (AI assistant)', so they "
+                "know an AI is talking to them."
+            ),
+        ),
+    ] = None,
+    mode: Annotated[
+        Literal["act", "talk"],
+        Field(
+            description=(
+                "'act' (default): you may also press keys, click and the like, after they allow it. 'talk': only "
+                "read their screen and talk with them; use it when the user you work for wants no actions, such "
+                "as while they are away. nvda_access_set_mode changes it later."
+            )
+        ),
+    ] = "act",
 ) -> str:
     """Connect to another person's NVDA through MCP Access, to help them. They choose "Share this computer with
     a helper" in NVDA, which gives them a code, and send it to you. NVDA then asks them whether to allow you;
@@ -331,7 +356,13 @@ async def nvda_access_connect(
         await _access.close()
         _access = None
     client = AccessClient(relay or default_relay())
-    client.client_name = _client.client_name
+    # They are told an AI is talking to them, and for whom.
+    client.client_name = (
+        f"{helper_name.strip()} (AI assistant)"
+        if helper_name and helper_name.strip()
+        else f"AI assistant ({_client.client_name or 'nvda-mcp'})"
+    )
+    client.mode = mode
     try:
         await client.connect(code)
     except NvdaUnavailableError as error:
@@ -339,11 +370,59 @@ async def nvda_access_connect(
     except ValueError as error:
         raise ToolError(str(error))
     _access = client
-    return (
-        f"Connected to {client.computer_name} through MCP Access. Every NVDA tool now works on their computer, "
-        f"and they hear what NVDA says there. Session check: {client.fingerprint} (they can compare it). "
-        "Use nvda_access_disconnect to go back to this computer."
-    )
+    client.open_inbox()
+    lines = [
+        (
+            f"Connected to {client.computer_name} through MCP Access as {client.client_name}, in {mode} mode. "
+            f"Every NVDA tool now works on their computer, and they hear what NVDA says there. Session check: "
+            f"{client.fingerprint} (they can compare it). Use nvda_access_disconnect to go back to this computer."
+        ),
+    ]
+    if client.inbox is not None:
+        lines.append(
+            f"Each message they send is also written as one line to {client.inbox.as_posix()}, and a last line "
+            "when the session ends. In Claude Code, watch it with a background monitor, such as "
+            f"`tail -n 0 -F '{client.inbox.as_posix()}'`, so their messages wake you even when no one types here; "
+            "answer them with nvda_access_send_message."
+        )
+    return "\n".join(lines)
+
+
+# What talk mode leaves out: everything that acts on their computer.
+_ACCESS_ACTIONS = frozenset(
+    {
+        "pressKeys",
+        "typeText",
+        "setValue",
+        "activateWindow",
+        "focusObject",
+        "activateObject",
+        "setDocumentMode",
+        "findInPage",
+        "moveToElement",
+        "mouseClick",
+        "mouseScroll",
+        "mouseMove",
+        "mouseDrag",
+        "speak",
+    }
+)
+
+
+@mcp.tool(name="nvda_access_set_mode", title="Let MCP Access act, or only talk", annotations=ACCESS)
+async def nvda_access_set_mode(
+    mode: Annotated[
+        Literal["act", "talk"],
+        Field(description="'act': actions allowed after they say yes. 'talk': only reading and messages."),
+    ],
+) -> str:
+    """Change what you may do on the computer you help: 'talk' when the user you work for wants no actions, for
+    example while they are away and their messages wake you; 'act' when they allow actions again.
+    """
+    if _access is None:
+        raise ToolError("Not connected to another computer.")
+    _access.mode = mode
+    return f"MCP Access is now in {mode} mode."
 
 
 @mcp.tool(name="nvda_access_send_message", title="Message the person you help", annotations=ACCESS)
