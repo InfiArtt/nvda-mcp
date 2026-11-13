@@ -276,3 +276,20 @@ async def test_the_inbox_wakes_a_monitor_and_talk_mode_refuses_actions(relay):
     assert allowed.is_error and "controlDisabled" in text_of(allowed)
     # The conversation does not stay on disk after the session.
     assert not inbox.exists()
+
+
+async def test_the_inbox_goes_away_by_itself_when_they_stop_sharing(relay, monkeypatch):
+    monkeypatch.setattr("nvda_mcp.access_client.INBOX_KEPT_AFTER_END_SECONDS", 0.3)
+    sharer = Sharer(relay.url)
+    sharer.session.start()
+    _event, details = await sharer.next_event()
+    async with Client(server.mcp) as client:
+        await client.call_tool("nvda_access_connect", {"code": details["code"], "relay": relay.url})
+        await sharer.next_event()
+        inbox = server._access.inbox
+        sharer.session.stop()
+        await anyio.sleep(0.15)
+        last_line = inbox.read_text(encoding="utf-8").splitlines()[-1]
+        await anyio.sleep(0.6)
+        assert "ended" in last_line and not inbox.exists()
+        await client.call_tool("nvda_access_disconnect", {})

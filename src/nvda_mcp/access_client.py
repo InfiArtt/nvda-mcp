@@ -28,6 +28,8 @@ MAX_MESSAGE_BYTES = 9 * 1024 * 1024
 CONNECT_TIMEOUT_SECONDS = 20.0
 # The person being helped answers NVDA's question in this time.
 APPROVAL_TIMEOUT_SECONDS = 120.0
+# How long the inbox file stays after the other computer ends the session, for a monitor to read its last line.
+INBOX_KEPT_AFTER_END_SECONDS = 10.0
 
 
 def default_relay() -> str:
@@ -212,6 +214,8 @@ class AccessClient:
         self.ended = reason
         self._message_arrived.set()
         self._write_inbox(f"MCP Access session with {self.computer_name} ended: {reason}")
+        # A monitor has a moment to read the last line; then the conversation leaves the disk.
+        asyncio.get_running_loop().call_later(INBOX_KEPT_AFTER_END_SECONDS, self._remove_inbox)
         for future in self._pending.values():
             if not future.done():
                 future.set_exception(NvdaUnavailableError(reason))
@@ -270,14 +274,17 @@ class AccessClient:
         with contextlib.suppress(OSError), self.inbox.open("a", encoding="utf-8") as file:
             file.write(line + "\n")
 
-    async def close(self) -> None:
-        if self.ended is None:
-            self.ended = "You disconnected."
+    def _remove_inbox(self) -> None:
+        # The conversation does not stay on disk after the session.
         if self.inbox is not None:
-            # The conversation does not stay on disk after the session.
             with contextlib.suppress(OSError):
                 self.inbox.unlink()
             self.inbox = None
+
+    async def close(self) -> None:
+        if self.ended is None:
+            self.ended = "You disconnected."
+        self._remove_inbox()
         if self._reader is not None:
             self._reader.cancel()
         if self._connection is not None:
