@@ -9,16 +9,19 @@ that the ``nvda-mcp`` server connects to. See the add-on's readme for setup.
 """
 
 import os
+import threading
 import webbrowser
 
 import addonHandler
 import api
 import config
+import controlTypes
 import globalPluginHandler
 import globalVars
 import ui
 import wx
 from gui import guiHelper, nvdaControls
+from gui.message import DefaultButtonSet, DialogType, MessageDialog, ReturnCode
 from gui.settingsDialogs import NVDASettingsDialog, SettingsPanel
 from logHandler import log
 from scriptHandler import script
@@ -28,9 +31,19 @@ from speech.types import SpeechSequence
 from .actionLog import ActionLog
 from .bridge import Bridge
 from .configSpec import CONFIG_SECTION, CONFIG_SPEC
+from .contextText import MAX_LIST_ITEMS, contextText
 from .devTools import DevTools
 from .nvdaActions import NvdaActions
-from .setupCommands import CLIENTS, setupText
+from .setupCommands import (
+	CLIENTS,
+	COMMAND_CLIENTS,
+	FILE_CLIENTS,
+	SetupError,
+	configFilePath,
+	installInFile,
+	runSetupCommand,
+	setupText,
+)
 from .speechLog import SpeechLog, sequenceToText
 
 addonHandler.initTranslation()
@@ -59,9 +72,16 @@ def _clientLabels() -> dict[str, str]:
 		"claudeCode": _("Claude Code"),
 		# Translators: An MCP client in the NVDA MCP settings panel's list of clients to set up.
 		"codex": _("Codex CLI"),
+		# Translators: An MCP client in the NVDA MCP settings panel's list of clients to set up.
+		"claudeDesktop": _("Claude Desktop"),
+		# Translators: An MCP client in the NVDA MCP settings panel's list of clients to set up.
+		# Antigravity is Google's AI coding application.
+		"antigravity": _("Antigravity"),
+		# Translators: An MCP client in the NVDA MCP settings panel's list of clients to set up.
+		"cursor": _("Cursor"),
 		# Translators: In the NVDA MCP settings panel's list of clients to set up:
-		# clients configured with a JSON settings file instead of a command.
-		"json": _("Claude Desktop, Cursor and others (JSON settings)"),
+		# other clients, configured by pasting JSON settings into their settings file.
+		"json": _("Other clients (JSON settings)"),
 	}
 
 
@@ -140,18 +160,91 @@ class NvdaMcpSettingsPanel(SettingsPanel):
 			choices=[labels[client] for client in CLIENTS],
 		)
 		self.clientChoice.SetSelection(0)
+		self.clientChoice.Bind(wx.EVT_CHOICE, self.onClientChoice)
+		buttons = guiHelper.ButtonHelper(wx.HORIZONTAL)
+		# Translators: A button in the NVDA MCP settings panel that sets up the chosen MCP client.
+		self.setUpButton = buttons.addButton(self, label=_("Set &up now"))
+		self.setUpButton.Bind(wx.EVT_BUTTON, self.onSetUp)
 		# Translators: A button in the NVDA MCP settings panel.
-		copyButton = helper.addItem(wx.Button(self, label=_("C&opy setup command")))
+		copyButton = buttons.addButton(self, label=_("C&opy setup command"))
 		copyButton.Bind(wx.EVT_BUTTON, self.onCopySetup)
+		helper.addItem(buttons)
 		# Translators: A button in the NVDA MCP settings panel that opens the author's PayPal page in a web browser.
 		donateButton = helper.addItem(wx.Button(self, label=_("&Donate to support NVDA MCP (opens PayPal)")))
 		donateButton.Bind(wx.EVT_BUTTON, lambda event: webbrowser.open(DONATE_URL))
+
+	def onClientChoice(self, event: wx.CommandEvent) -> None:
+		# Other clients have no known settings file, so they can only be set up by pasting.
+		self.setUpButton.Enable(CLIENTS[self.clientChoice.GetSelection()] != "json")
+
+	def onSetUp(self, event: wx.CommandEvent) -> None:
+		client = CLIENTS[self.clientChoice.GetSelection()]
+		label = _clientLabels()[client]
+		version = _addonVersion()
+		if client in FILE_CLIENTS:
+			path = configFilePath(client)
+			# Translators: Asked before NVDA MCP adds itself to an MCP client's settings file.
+			# {client} is the client, such as Claude Desktop; {path} is the settings file.
+			question = _(
+				"NVDA MCP will add itself to {client}'s settings, in {path}. "
+				"Its other settings stay as they are, and a copy of the current file is kept with .bak added "
+				"to its name. Continue?"
+			).format(client=label, path=path)
+		else:
+			# Translators: Asked before NVDA MCP runs an MCP client's setup command.
+			# {client} is the client, such as Claude Code; {command} is the command.
+			question = _("NVDA MCP will run this command to set up {client}:\n{command}\nContinue?").format(
+				client=label, command=setupText(client, version)
+			)
+		# Translators: The title of the dialog asking to set up an MCP client.
+		title = _("Set up {client}").format(client=label)
+		dialog = MessageDialog(self, question, title, buttons=DefaultButtonSet.YES_NO)
+		dialog.setDefaultFocus(ReturnCode.NO)
+		dialog.setFallbackAction(ReturnCode.NO)
+		if dialog.ShowModal() != ReturnCode.YES:
+			return
+		if client in FILE_CLIENTS:
+			try:
+				installInFile(path, version)
+			except SetupError as error:
+				self._reportSetUpError(label, str(error))
+				return
+			self._reportSetUp(label)
+			return
+		# Translators: Reported while an MCP client's setup command runs.
+		ui.message(_("Setting up {client}...").format(client=label))
+
+		def run() -> None:
+			try:
+				runSetupCommand(client, version)
+			except SetupError as error:
+				wx.CallAfter(self._reportSetUpError, label, str(error))
+				return
+			wx.CallAfter(self._reportSetUp, label)
+
+		threading.Thread(target=run, name="nvdaMcpSetUp", daemon=True).start()
+
+	def _reportSetUp(self, label: str) -> None:
+		# Translators: Reported after NVDA MCP set up an MCP client. {client} is the client, such as Cursor.
+		ui.message(_("{client} is set up. Restart {client} so it starts NVDA MCP.").format(client=label))
+
+	def _reportSetUpError(self, label: str, error: str) -> None:
+		MessageDialog(
+			self,
+			# Translators: Shown when setting up an MCP client failed. {error} says why, in English.
+			_(
+				"{client} could not be set up. {error}\nYou can copy the setup command and add it by hand."
+			).format(client=label, error=error),
+			# Translators: The title of the message shown when setting up an MCP client failed.
+			_("NVDA MCP setup failed"),
+			dialogType=DialogType.ERROR,
+		).ShowModal()
 
 	def onCopySetup(self, event: wx.CommandEvent) -> None:
 		client = CLIENTS[self.clientChoice.GetSelection()]
 		if not api.copyToClip(setupText(client, _addonVersion())):
 			return
-		if client == "json":
+		if client not in COMMAND_CLIENTS:
 			# Translators: Reported after copying an MCP client's JSON settings in the NVDA MCP settings panel.
 			ui.message(_("Settings copied. Paste them into the client's MCP settings file."))
 		else:
@@ -234,6 +327,37 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def _onPreSpeech(self, speechSequence: SpeechSequence, **kwargs) -> None:
 		self._speechLog.add(sequenceToText(speechSequence))
+
+	@script(
+		# Translators: Describes a command in the Input Gestures dialog.
+		description=_("Copies what NVDA sees here, to paste into a chat with any AI assistant"),
+		category=SCRCAT_NVDA_MCP,
+	)
+	def script_copyContext(self, gesture) -> None:
+		actions = getattr(self, "_actions", None)
+		if actions is None:
+			return
+		status = actions._getStatus({})
+		focus = actions._getFocus({})
+		try:
+			tree = actions._getTree({"maxDepth": 6, "maxNodes": 200, "maxChildren": MAX_LIST_ITEMS})
+		except Exception:  # noqa: BLE001 - the copy is still useful without the window's controls
+			log.debugWarning("NVDA MCP could not read the window for the copy", exc_info=True)
+			tree = None
+		speech = [entry.text for entry in self._speechLog.since(0, 100)]
+		# States nearly every control has, or that only say a list item is scrolled out of view.
+		hiddenStates = frozenset(
+			state.displayString
+			for state in (
+				controlTypes.State.FOCUSABLE,
+				controlTypes.State.SELECTABLE,
+				controlTypes.State.INVISIBLE,
+				controlTypes.State.OFFSCREEN,
+			)
+		)
+		if api.copyToClip(contextText(status, focus, tree, speech, hiddenStates)):
+			# Translators: Reported after copying what NVDA sees, to paste into an AI chat.
+			ui.message(_("Copied what NVDA sees here. It can include private text from this window."))
 
 	def _isRunning(self) -> bool:
 		if self._bridge is None:

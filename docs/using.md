@@ -89,9 +89,11 @@ When they don't match, every tool fails with a message saying which one is older
 
 1. **The add-on**: NVDA tells you when an update is ready. Or open Tools, Add-on Store, *Updatable add-ons*.
    Install it and restart NVDA.
-2. **The server**: in NVDA's Settings, **NVDA MCP** category, press **Copy setup command** again and run what it
-   copies, or paste the settings again. The command names the server version that matches the new add-on.
-   - Claude Code may say the `nvda` server already exists. Remove it first with `claude mcp remove nvda --scope user`.
+2. **The server**: in NVDA's Settings, **NVDA MCP** category, choose your assistant and press **Set up now**
+   again. It replaces the old entry with the server version that matches the new add-on.
+   Or press **Copy setup command** and run what it copies, or paste the settings again.
+   - If you run Claude Code's command yourself, it may say the `nvda` server already exists.
+     Remove it first with `claude mcp remove nvda --scope user`.
    - If you installed the server with pipx, run `pipx upgrade nvda-mcp`; with pip, `pip install -U nvda-mcp`.
 3. **Restart the server** in your assistant (see the next section).
 4. Check it worked: ask for NVDA's status. `addonVersion` should be the new version.

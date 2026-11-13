@@ -1,3 +1,4 @@
+import itertools
 import random
 from dataclasses import dataclass, field
 
@@ -1094,3 +1095,87 @@ def test_many_empty_layout_containers_do_not_stop_the_read():
     result = snapshot(root, headChildren=10, tailChildren=10)
     assert child_names(result["tree"]) == ["B0", "B1", "B2", "B3", "B4"]
     assert result["truncated"] is None
+
+
+def walk_windowed(root, focus_path=(), max_children=10, max_nodes=100, with_index=True):
+    path = list(focus_path)
+
+    def focus_child(node):
+        for parent, child in itertools.pairwise(path):
+            if parent is node:
+                return child
+        return None
+
+    return walkTree(
+        root,
+        4,
+        max_nodes,
+        max_children,
+        firstChild=lambda node: node.children[0] if node.children else None,
+        nextSibling=lambda node: node.next,
+        describe=lambda node: {"role": node.role, "name": node.name},
+        isLayoutOnly=lambda node: node.role == "section" and not node.name,
+        childCount=lambda node: len(node.children),
+        timeBudgetSeconds=3.0,
+        maxNesting=100,
+        lastChild=lambda node: node.children[-1] if node.children else None,
+        previousSibling=lambda node: node.previous,
+        focusChild=focus_child,
+        indexInParent=(lambda node: node.parent.children.index(node)) if with_index else None,
+        showsNewestLast=lambda node: node.role == "list",
+    )
+
+
+def names(node):
+    return [child["name"] for child in node.get("children", [])]
+
+
+def test_long_list_without_the_focus_shows_its_newest_children():
+    # A chat log: the newest messages are at the end.
+    chat = Node("list", "Chat", [Node("list item", f"message {number}") for number in range(665)])
+    tree = walk_windowed(Node("window", "mwMod", [chat]))["tree"]["children"][0]
+    assert names(tree) == [f"message {number}" for number in range(655, 665)]
+    assert tree["childrenBefore"] == 655 and "moreChildren" not in tree
+
+
+def test_long_list_with_the_focus_shows_the_children_around_it():
+    items = [Node("list item", f"script {number}") for number in range(149)]
+    scripts = Node("list", "Scripts", items)
+    root = Node("window", "mwMod", [scripts])
+    tree = walk_windowed(root, [root, scripts, items[15]])["tree"]["children"][0]
+    assert names(tree) == [f"script {number}" for number in range(10, 20)]
+    assert tree["childrenBefore"] == 10 and tree["moreChildren"] == 129
+
+
+def test_focus_near_the_start_shows_the_first_children():
+    items = [Node("list item", str(number)) for number in range(50)]
+    lst = Node("list", "List", items)
+    root = Node("window", "W", [lst])
+    tree = walk_windowed(root, [root, lst, items[1]])["tree"]["children"][0]
+    assert names(tree) == [str(number) for number in range(10)]
+    assert "childrenBefore" not in tree and tree["moreChildren"] == 40
+
+
+def test_without_indexes_the_list_only_says_more_children_exist():
+    items = [Node("list item", str(number)) for number in range(50)]
+    lst = Node("list", "List", items)
+    root = Node("window", "W", [lst])
+    tree = walk_windowed(root, [root, lst, items[30]], with_index=False)["tree"]["children"][0]
+    assert names(tree) == [str(number) for number in range(25, 35)]
+    assert tree["childrenBefore"] is True and tree["moreChildren"] is True
+
+
+def test_short_lists_and_layout_containers_are_read_from_the_start():
+    short = Node("list", "Short", [Node("list item", str(number)) for number in range(5)])
+    sections = Node("list", "Mixed", [Node("section", "", [Node("button", str(n))]) for n in range(20)])
+    tree = walk_windowed(Node("window", "W", [short, sections]), max_children=10)["tree"]
+    assert names(tree["children"][0]) == [str(number) for number in range(5)]
+    assert names(tree["children"][1]) == [str(number) for number in range(10)]
+    assert "childrenBefore" not in tree["children"][1]
+
+
+def test_long_menus_without_the_focus_still_show_their_first_items():
+    menu = Node("menu", "File", [Node("menu item", str(number)) for number in range(12)])
+    tree = walk_windowed(Node("window", "W", [menu]))["tree"]["children"][0]
+    assert names(tree) == [str(number) for number in range(10)]
+    assert "childrenBefore" not in tree and tree["moreChildren"] == 2

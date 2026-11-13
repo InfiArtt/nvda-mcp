@@ -120,9 +120,22 @@ msgid "Codex CLI"
 msgstr "Codex CLI"
 
 #. Translators: In the NVDA MCP settings panel's list of clients to set up:
-#. clients configured with a JSON settings file instead of a command.
-msgid "Claude Desktop, Cursor and others (JSON settings)"
-msgstr "Claude Desktop, Cursor, dan lainnya (pengaturan JSON)"
+#. other clients, configured by pasting JSON settings into their settings file.
+msgid "Other clients (JSON settings)"
+msgstr "Klien lain (pengaturan JSON)"
+
+#. Translators: An MCP client in the NVDA MCP settings panel's list of clients to set up.
+msgid "Claude Desktop"
+msgstr "Claude Desktop"
+
+#. Translators: An MCP client in the NVDA MCP settings panel's list of clients to set up.
+#. Antigravity is Google's AI coding application.
+msgid "Antigravity"
+msgstr "Antigravity"
+
+#. Translators: An MCP client in the NVDA MCP settings panel's list of clients to set up.
+msgid "Cursor"
+msgstr "Cursor"
 
 #. Translators: A list in the NVDA MCP settings panel, choosing the program to set up.
 msgid "Set up this MCP &client:"
@@ -160,3 +173,61 @@ msgid ""
 msgstr ""
 "NVDA MCP sedang tersambung ke {browser} untuk membaca halaman web ini. "
 "{browser} akan menanyakan apakah remote debugging diizinkan."
+
+#. Translators: A button in the NVDA MCP settings panel that sets up the chosen MCP client.
+msgid "Set &up now"
+msgstr "&Pasang sekarang"
+
+#. Translators: Asked before NVDA MCP adds itself to an MCP client's settings file.
+#. {client} is the client, such as Claude Desktop; {path} is the settings file.
+msgid ""
+"NVDA MCP will add itself to {client}'s settings, in {path}. Its other "
+"settings stay as they are, and a copy of the current file is kept with .bak "
+"added to its name. Continue?"
+msgstr ""
+"NVDA MCP akan menambahkan dirinya ke pengaturan {client}, di {path}. "
+"Pengaturan lainnya tidak berubah, dan salinan file yang sekarang disimpan "
+"dengan tambahan .bak di namanya. Lanjutkan?"
+
+#. Translators: Asked before NVDA MCP runs an MCP client's setup command.
+#. {client} is the client, such as Claude Code; {command} is the command.
+msgid ""
+"NVDA MCP will run this command to set up {client}:\n"
+"{command}\n"
+"Continue?"
+msgstr ""
+"NVDA MCP akan menjalankan perintah ini untuk memasang {client}:\n"
+"{command}\n"
+"Lanjutkan?"
+
+#. Translators: The title of the dialog asking to set up an MCP client.
+msgid "Set up {client}"
+msgstr "Pasang {client}"
+
+#. Translators: Reported while an MCP client's setup command runs.
+msgid "Setting up {client}..."
+msgstr "Memasang {client}..."
+
+#. Translators: Reported after NVDA MCP set up an MCP client. {client} is the client, such as Cursor.
+msgid "{client} is set up. Restart {client} so it starts NVDA MCP."
+msgstr "{client} sudah terpasang. Mulai ulang {client} agar menjalankan NVDA MCP."
+
+#. Translators: Shown when setting up an MCP client failed. {error} says why, in English.
+msgid ""
+"{client} could not be set up. {error}\n"
+"You can copy the setup command and add it by hand."
+msgstr ""
+"{client} tidak dapat dipasang. {error}\n"
+"Anda bisa menyalin perintah penyiapan dan menambahkannya sendiri."
+
+#. Translators: The title of the message shown when setting up an MCP client failed.
+msgid "NVDA MCP setup failed"
+msgstr "Pemasangan NVDA MCP gagal"
+
+#. Translators: Describes a command in the Input Gestures dialog.
+msgid "Copies what NVDA sees here, to paste into a chat with any AI assistant"
+msgstr "Menyalin apa yang dilihat NVDA di sini, untuk ditempel ke obrolan dengan asisten AI mana pun"
+
+#. Translators: Reported after copying what NVDA sees, to paste into an AI chat.
+msgid "Copied what NVDA sees here. It can include private text from this window."
+msgstr "Apa yang dilihat NVDA di sini sudah disalin. Isinya bisa memuat teks pribadi dari jendela ini."

@@ -31,6 +31,14 @@ For people who use NVDA:
 - **Doing repetitive tasks.** The assistant can move through an application with the keyboard,
   type text, switch windows, and wait for something to happen, such as a chat reply.
 - **Learning.** Ask which NVDA commands work where you are, or what a key does here.
+- **Making an application usable.** Tell the assistant "NVDA only says button here". It finds what NVDA
+  cannot read, writes a small add-on that fixes it, tests it with NVDA and packages it for you to install.
+- **Reading what NVDA cannot.** When an application shows NVDA nothing but a "pane", the assistant can read
+  the text on the screen with Windows' text recognition, as NVDA+R does.
+- **Reporting a problem.** The assistant gathers the facts and writes a bug report for the application's
+  developer, for you to send.
+- **Asking any AI, even without MCP.** One NVDA command copies what NVDA sees where you are, ready to paste
+  into ChatGPT, Gemini or any chat.
 
 For developers and testers:
 
@@ -71,11 +79,14 @@ Both are free and open source.
 
    Close the command prompt and open a new one, so it finds uv.
 3. **Connect your assistant.** In NVDA, open Settings (NVDA+N, Preferences, Settings), then the
-   **NVDA MCP** category. Choose your assistant under *Set up this MCP client* and press
-   **Copy setup command**.
-   - For Claude Code or Codex CLI, paste the command into a command prompt and press Enter.
-   - For Claude Desktop, Cursor and other assistants that use a settings file, paste the settings into
-     that file. For Claude Desktop, it is `claude_desktop_config.json` (Settings, Developer, Edit Config).
+   **NVDA MCP** category. Choose your assistant under *Set up this MCP client* and press **Set up now**.
+   NVDA asks before it changes anything, then tells you to restart the assistant.
+   - For Claude Desktop, Antigravity and Cursor, NVDA MCP adds itself to the assistant's settings file,
+     keeps the rest of the file, and saves a copy of the old one with `.bak` added to its name.
+   - For Claude Code and Codex CLI, it runs the assistant's own setup command for you.
+   - For other assistants, choose *Other clients*, press **Copy setup command** and paste the settings into
+     the assistant's MCP settings file. **Copy setup command** also works for every assistant above, if you
+     prefer to do it yourself.
 
    The command is like `claude mcp add --scope user nvda -- uvx nvda-mcp==1.0.0`: it tells your assistant to
    run the server version that matches your add-on.
@@ -118,6 +129,8 @@ Commands in Input Gestures, NVDA MCP category (no keys assigned by default):
 - Report whether NVDA MCP is running and whether it may press keys.
 - Stop MCP clients from pressing keys until you approve again.
 - Open the log of actions MCP clients have taken.
+- Copy what NVDA sees here, to paste into a chat with any AI assistant: the application, the focused control,
+  the controls in the window and what NVDA said last. It works without an MCP client.
 
 How the connection is protected:
 
@@ -144,6 +157,12 @@ or reads cookies, and NVDA tells you before it connects. Turn remote debugging o
 If you let it take pictures of controls (off by default), each picture shows that part of your screen,
 whatever is there, and goes to the assistant's provider like everything else it reads.
 Every picture is written to the action log.
+
+If you use the command that copies what NVDA sees, read what you paste before you send it:
+it holds the controls and text of the window, and what NVDA said last, which can come from other windows.
+
+The assistant can read text on the screen with Windows' text recognition (`nvda_recognize_text`), like NVDA+R.
+It reads the window or control it is asked about, whatever is shown there, and every use is written to the action log.
 
 - Before you work with something private, such as banking, passwords or personal messages,
   close your assistant or turn off *Let MCP clients connect* in NVDA's settings.
@@ -178,6 +197,7 @@ The assistant sees these tools:
 | `nvda_move_to_element` | Move to, or activate, an element from `nvda_list_elements` |
 | `nvda_get_action_log` | The newest entries of the log of actions clients took |
 | `nvda_audit_focus_order` | Tab through a window and report unlabeled controls, silent controls, duplicate names, keyboard traps |
+| `nvda_recognize_text` | Read the text on the screen in a window or control with Windows' text recognition (OCR), line by line, when NVDA cannot read it |
 
 For developers of add-ons and accessible applications:
 
@@ -196,12 +216,19 @@ For developers of add-ons and accessible applications:
 | `nvda_list_scripts` | NVDA commands available where focus is, with their keys; or which command a key runs |
 | `nvda_run_script` | Run an NVDA command by name, whatever key it is assigned to |
 | `nvda_reload_plugins` | Reload add-ons and app modules from disk, like NVDA+control+F3 |
+| `nvda_get_addon_paths` | Where add-on code goes: NVDA's developer scratchpad and whether NVDA loads code from it, and the add-ons running |
 | `nvda_get_settings` | Read NVDA's settings as they apply now; values that look like secrets are hidden |
 | `nvda_run_scenario` | Run keys and typing, record what NVDA said after each step, and compare with a baseline file |
 
-Ready-made prompts walk the assistant through common developer tasks with these tools, in the right order:
-`audit_accessibility`, `build_addon`, `why_silent` and `check_labels`. Clients that support MCP prompts offer
-them as commands; in Claude Code, for example, type `/mcp__nvda__audit_accessibility`.
+Ready-made prompts walk the assistant through common tasks with these tools, in the right order:
+
+- For everyone: `explain_screen` (where am I and what can I do here), `make_accessible` (find what stops NVDA
+  in an application, write a small add-on that fixes it, test it and package it) and `report_problem`
+  (write a bug report for the application's developer).
+- For developers: `audit_accessibility`, `build_addon`, `why_silent` and `check_labels`.
+
+Clients that support MCP prompts offer them as commands; in Claude Code, for example, type
+`/mcp__nvda__make_accessible`.
 
 Action tools such as `nvda_press_keys` and `nvda_activate_object` take `record`: the result then also says
 what the action changed in the accessibility tree (controls added, removed, renamed or moved, values

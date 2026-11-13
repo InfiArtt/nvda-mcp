@@ -33,6 +33,15 @@ Untuk pengguna NVDA:
 - **Mengerjakan tugas berulang.** Asisten bisa berpindah di dalam aplikasi dengan keyboard, mengetik teks,
   berganti jendela, dan menunggu sesuatu terjadi, misalnya balasan chat.
 - **Belajar.** Tanyakan perintah NVDA apa saja yang berlaku di tempat Anda berada, atau apa fungsi sebuah tombol di sini.
+- **Membuat aplikasi bisa dipakai.** Katakan kepada asisten "NVDA cuma bilang tombol di sini". Asisten mencari
+  apa yang tidak bisa dibaca NVDA, menulis add-on kecil yang memperbaikinya, mengujinya dengan NVDA, lalu
+  mengemasnya supaya bisa Anda pasang.
+- **Membaca yang tidak bisa dibaca NVDA.** Saat sebuah aplikasi hanya terbaca "panel", asisten bisa membaca
+  teks di layar dengan pengenalan teks Windows, seperti NVDA+R.
+- **Melaporkan masalah.** Asisten mengumpulkan faktanya dan menulis laporan bug untuk pembuat aplikasi,
+  untuk Anda kirim sendiri.
+- **Bertanya ke AI mana pun, bahkan tanpa MCP.** Satu perintah NVDA menyalin apa yang dilihat NVDA di tempat
+  Anda berada, siap ditempel ke ChatGPT, Gemini, atau chat apa pun.
 
 Untuk developer dan penguji:
 
@@ -78,10 +87,14 @@ Keduanya gratis dan open source.
 
    Tutup command prompt lalu buka yang baru, supaya uv ditemukan.
 3. **Hubungkan asisten Anda.** Di NVDA, buka Pengaturan (NVDA+N, Preferensi, Pengaturan), lalu kategori
-   **NVDA MCP**. Pilih asisten Anda di *Siapkan klien MCP ini* dan tekan **Salin perintah penyiapan**.
-   - Untuk Claude Code atau Codex CLI, tempelkan perintahnya ke command prompt lalu tekan Enter.
-   - Untuk Claude Desktop, Cursor, dan asisten lain yang memakai file pengaturan, tempelkan pengaturannya ke
-     file tersebut. Untuk Claude Desktop, filenya `claude_desktop_config.json` (Settings, Developer, Edit Config).
+   **NVDA MCP**. Pilih asisten Anda di *Siapkan klien MCP ini* dan tekan **Pasang sekarang**.
+   NVDA bertanya dulu sebelum mengubah apa pun, lalu meminta Anda memulai ulang asistennya.
+   - Untuk Claude Desktop, Antigravity, dan Cursor, NVDA MCP menambahkan dirinya ke file pengaturan asisten,
+     membiarkan isi lainnya, dan menyimpan salinan file lama dengan tambahan `.bak` di namanya.
+   - Untuk Claude Code dan Codex CLI, NVDA MCP menjalankan perintah penyiapan asisten itu untuk Anda.
+   - Untuk asisten lain, pilih *Klien lain*, tekan **Salin perintah penyiapan**, lalu tempelkan pengaturannya
+     ke file pengaturan MCP asisten itu. **Salin perintah penyiapan** juga bisa dipakai untuk semua asisten di
+     atas, kalau Anda ingin melakukannya sendiri.
 
    Perintahnya mirip `claude mcp add --scope user nvda -- uvx nvda-mcp==1.0.0`: perintah ini menyuruh asisten
    Anda menjalankan versi server yang cocok dengan add-on Anda.
@@ -125,6 +138,8 @@ Perintah di Gestur Masukan, kategori NVDA MCP (tanpa tombol bawaan):
 - Melaporkan apakah NVDA MCP berjalan dan apakah boleh menekan tombol.
 - Menghentikan klien MCP menekan tombol sampai Anda menyetujui lagi.
 - Membuka catatan aksi yang telah dilakukan klien MCP.
+- Menyalin apa yang dilihat NVDA di sini, untuk ditempel ke obrolan dengan asisten AI mana pun: aplikasinya,
+  kontrol yang terfokus, kontrol di jendela itu, dan ucapan NVDA terakhir. Bisa dipakai tanpa klien MCP.
 
 Cara koneksinya dilindungi:
 
@@ -153,6 +168,13 @@ Jika Anda mengizinkannya mengambil gambar kontrol (mati secara bawaan), setiap g
 layar itu, apa pun isinya, dan dikirim ke penyedia asisten seperti semua yang dibacanya.
 Setiap gambar dicatat di catatan aksi.
 
+Jika Anda memakai perintah yang menyalin apa yang dilihat NVDA, baca dulu isinya sebelum dikirim:
+isinya memuat kontrol dan teks jendela itu, serta ucapan NVDA terakhir, yang bisa berasal dari jendela lain.
+
+Asisten bisa membaca teks di layar dengan pengenalan teks Windows (`nvda_recognize_text`), seperti NVDA+R.
+Yang dibaca adalah jendela atau kontrol yang diminta, apa pun yang tampil di sana, dan setiap pemakaiannya
+dicatat di catatan aksi.
+
 - Sebelum mengerjakan sesuatu yang pribadi, seperti perbankan, kata sandi, atau pesan pribadi,
   tutup asisten Anda atau matikan *Izinkan klien MCP terhubung* di pengaturan NVDA.
 - Riwayat ucapan NVDA hanya disimpan di memori, dan terhapus saat NVDA dimulai ulang.
@@ -161,10 +183,16 @@ Setiap gambar dicatat di catatan aksi.
 ## Alat
 
 Daftar lengkap alat yang dilihat asisten ada di [README berbahasa Inggris](../README.md#tools).
-Ada juga prompt siap pakai yang memandu asisten mengerjakan tugas pengembang yang umum dengan alat-alat itu,
-dalam urutan yang tepat: `audit_accessibility`, `build_addon`, `why_silent` dan `check_labels`. Klien yang
-mendukung prompt MCP menampilkannya sebagai perintah; di Claude Code, misalnya, ketik
-`/mcp__nvda__audit_accessibility`.
+Ada juga prompt siap pakai yang memandu asisten mengerjakan tugas umum dengan alat-alat itu, dalam urutan
+yang tepat:
+
+- Untuk semua orang: `explain_screen` (saya di mana dan apa yang bisa saya lakukan di sini), `make_accessible`
+  (mencari apa yang menghalangi NVDA di sebuah aplikasi, menulis add-on kecil untuk memperbaikinya, mengujinya,
+  lalu mengemasnya) dan `report_problem` (menulis laporan bug untuk pembuat aplikasi).
+- Untuk pengembang: `audit_accessibility`, `build_addon`, `why_silent` dan `check_labels`.
+
+Klien yang mendukung prompt MCP menampilkannya sebagai perintah; di Claude Code, misalnya, ketik
+`/mcp__nvda__make_accessible`.
 Setiap aksi melaporkan apa yang diucapkan NVDA sesudahnya dan ke mana fokus berpindah, dan bisa menunggu
 pengumuman yang diharapkan, misalnya "terkirim" atau judul sebuah dialog.
 

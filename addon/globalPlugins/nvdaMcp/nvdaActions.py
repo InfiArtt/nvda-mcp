@@ -9,6 +9,7 @@ so they must run on NVDA's main thread; :class:`NvdaActions` takes care of that.
 """
 
 import ctypes
+import itertools
 import re
 import threading
 import time
@@ -194,6 +195,10 @@ def describeObject(obj: NVDAObject) -> dict[str, Any]:
 	return {key: value for key, value in description.items() if value not in (None, "", [], {})}
 
 
+# Long objects of these roles show their last children when the focus is not in them: chats and logs
+# add their newest entries at the end.
+_NEWEST_LAST_ROLES = frozenset({controlTypes.Role.LIST, controlTypes.Role.TABLE, controlTypes.Role.TREEVIEW})
+
 # Roles that, without a name, only exist for layout: web pages wrap content in many of these.
 _LAYOUT_ROLES = frozenset(
 	{
@@ -230,6 +235,14 @@ def _describeWithAncestors(obj: NVDAObject, ancestors: list[NVDAObject]) -> dict
 
 def _walkTree(root: NVDAObject, maxDepth: int, maxNodes: int, maxChildren: int | None) -> dict[str, Any]:
 	"""Walk the tree below root within limits, as :func:`treeWalk.walkTree` describes."""
+	focusPath = [*api.getFocusAncestors(), api.getFocusObject()]
+
+	def focusChild(obj: NVDAObject) -> NVDAObject | None:
+		for parent, child in itertools.pairwise(focusPath):
+			if parent == obj:
+				return child
+		return None
+
 	return walkTree(
 		root,
 		maxDepth,
@@ -242,6 +255,11 @@ def _walkTree(root: NVDAObject, maxDepth: int, maxNodes: int, maxChildren: int |
 		childCount=lambda obj: _safeGet(obj, "childCount"),
 		timeBudgetSeconds=TREE_TIME_BUDGET_SECONDS,
 		maxNesting=MAX_TREE_NESTING,
+		lastChild=lambda obj: _safeGet(obj, "lastChild"),
+		previousSibling=lambda obj: _safeGet(obj, "previous"),
+		focusChild=focusChild,
+		indexInParent=lambda obj: _safeGet(obj, "indexInParent"),
+		showsNewestLast=lambda obj: _safeGet(obj, "role") in _NEWEST_LAST_ROLES,
 	)
 
 
