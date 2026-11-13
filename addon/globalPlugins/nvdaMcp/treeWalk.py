@@ -44,6 +44,11 @@ def walkTree(
 	childCount: Callable[[T], Any],
 	timeBudgetSeconds: float,
 	maxNesting: int,
+	lastChild: Callable[[T], T | None] | None = None,
+	previousSibling: Callable[[T], T | None] | None = None,
+	focusChild: Callable[[T], T | None] | None = None,
+	indexInParent: Callable[[T], Any] | None = None,
+	showsNewestLast: Callable[[T], bool] | None = None,
 ) -> dict[str, Any]:
 	"""Depth-first walk using firstChild/next, bounded by depth, node count and time.
 
@@ -52,10 +57,77 @@ def walkTree(
 	:param maxChildren: Show at most this many children of any object, so one long list
 		does not use up the node limit. The node says how many were left out.
 	:param maxNesting: Guards against cycles in broken trees, since layout containers do not count towards depth.
+	:param lastChild: With previousSibling and focusChild, lets a long list show its children around the focus,
+		or its last children when the focus is elsewhere, instead of its first ones: in a chat or a log,
+		the newest entries are at the end. The node then also says how many earlier children were left out.
+	:param focusChild: The child of an object that is, or contains, the focus; None when the focus is elsewhere.
+	:param indexInParent: An object's index among its siblings, to count the children left out before it.
+	:param showsNewestLast: Whether a long object without the focus should show its last children, as lists
+		and tables do; others, such as menus, show their first ones.
 	"""
 	deadline = time.monotonic() + timeBudgetSeconds
 	nodeCount = 0
 	truncatedReason: str | None = None
+	canWindow = None not in (lastChild, previousSibling, focusChild)
+
+	def windowOf(obj: T) -> tuple[list[T], Any] | None:
+		"""The children of a long list to show, and how many come before them; None to read from the start."""
+		count = childCount(obj)
+		if not (isinstance(count, int) and count > maxChildren):
+			return None
+		anchor = focusChild(obj)
+		if anchor is None and not (showsNewestLast is not None and showsNewestLast(obj)):
+			return None
+		if anchor is None:
+			start, back = lastChild(obj), maxChildren - 1
+		else:
+			start, back = anchor, maxChildren // 2
+		if start is None:
+			return None
+		for _step in range(back):
+			previous = previousSibling(start)
+			if previous is None:
+				break
+			start = previous
+		chosen = [start]
+		while len(chosen) < maxChildren:
+			following = nextSibling(chosen[-1])
+			if following is None:
+				break
+			chosen.append(following)
+		if any(isLayoutOnly(child) for child in chosen):
+			# Their children are shown in their place, so counts would mislead: read the usual way.
+			return None
+		if anchor is None:
+			before: Any = count - len(chosen)
+		else:
+			index = indexInParent(start) if indexInParent is not None else None
+			before = index if type(index) is int and index >= 0 else previousSibling(start) is not None
+		return chosen, before
+
+	def windowedChildren(obj: T, depth: int, nesting: int) -> tuple[list[dict[str, Any]], Any, Any] | None:
+		nonlocal truncatedReason
+		if not canWindow or maxChildren is None:
+			return None
+		window = windowOf(obj)
+		if window is None:
+			return None
+		chosen, before = window
+		children: list[dict[str, Any]] = []
+		for child in chosen:
+			if nodeCount >= maxNodes:
+				truncatedReason = f"stopped after {maxNodes} nodes"
+				break
+			if time.monotonic() > deadline:
+				truncatedReason = f"stopped after {timeBudgetSeconds} seconds"
+				break
+			children.append(visit(child, depth + 1, nesting + 1))
+		count = childCount(obj)
+		if type(before) is int and isinstance(count, int):
+			after: Any = max(count - before - len(children), 0)
+		else:
+			after = nextSibling(chosen[len(children) - 1]) is not None if children else True
+		return children, before, after
 
 	def childrenOf(obj: T, depth: int, nesting: int) -> list[dict[str, Any]]:
 		nonlocal nodeCount, truncatedReason
@@ -85,7 +157,16 @@ def walkTree(
 		nonlocal nodeCount
 		nodeCount += 1
 		node = describe(obj)
-		if depth < maxDepth:
+		windowed = windowedChildren(obj, depth, nesting) if depth < maxDepth else None
+		if windowed is not None:
+			children, before, after = windowed
+			if before:
+				node["childrenBefore"] = before
+			if after:
+				node["moreChildren"] = after
+			if children:
+				node["children"] = children
+		elif depth < maxDepth:
 			children = childrenOf(obj, depth, nesting)
 			# A flattened layout container may have been cut short too, so look through the whole list.
 			wasCut = any(child is _MORE_CHILDREN for child in children)

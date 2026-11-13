@@ -8,6 +8,46 @@ install them together.
 
 ## [Unreleased]
 
+### Added
+
+- **MCP Access**: someone you trust helps you from their own computer, with their AI assistant working through
+  your NVDA. A command in Input Gestures shares this computer and copies a one-time code that works for
+  10 minutes; the helper's assistant connects with `nvda_access_connect`, and every NVDA tool then works on
+  your computer until `nvda_access_disconnect`. The person being helped needs no AI assistant.
+  - End-to-end encrypted (X25519 and AES-256-GCM, keys made from the code and fresh random keys); the relay,
+    run by InfiArtt at `wss://infiartt.com/mcp-access/v1`, only forwards data it cannot read.
+    Strict TLS 1.3 to the relay.
+  - NVDA asks before a helper connects, and again before their first key press and their first picture of the
+    screen in each session, even if those are off in the settings. *Never let MCP Access helpers press keys* and
+    *Never let MCP Access helpers take pictures of the screen* refuse them altogether.
+  - Reloading add-ons, running NVDA commands, NVDA's log and settings, and web pages' HTML are never available
+    through MCP Access. Connections and actions are written to the action log.
+  - The ready-made prompt `help_someone` connects with the code the person sent and helps them safely.
+  - NVDA says when a helper connects and why sharing ended, in your language.
+
+- **Set up now**, in NVDA's Settings, NVDA MCP category: sets up the chosen assistant without editing files
+  by hand. For Claude Desktop, Antigravity and Cursor it adds NVDA MCP to the assistant's settings file,
+  keeping the rest of the file and a copy of the old one (`.bak`); for Claude Code and Codex CLI it runs their
+  own setup command. NVDA asks before changing anything. Antigravity and Cursor are new in the list of clients.
+- `nvda_recognize_text`: reads the text on the screen in a window or control with Windows' text recognition,
+  as NVDA+R does, line by line with where each line is. For applications NVDA can read nothing in.
+  Every use is written to the action log.
+- `nvda_get_addon_paths`, for add-on developers: where NVDA's developer scratchpad is, whether NVDA loads code
+  from it, and the add-ons running.
+- Ready-made prompts for everyone: `make_accessible` finds what stops NVDA in an application, writes a small
+  add-on that fixes it, tests it in the running NVDA and packages it; `explain_screen` says where you are and
+  what you can do there; `report_problem` writes a bug report for the application's developer, for you to send.
+- A command, in Input Gestures, NVDA MCP category, that copies what NVDA sees where you are, to paste into a
+  chat with any AI assistant, even one without MCP: the application, the focused control, the controls in the
+  window and what NVDA said last.
+
+### Changed
+
+- When `nvda_get_object_tree` cuts a long list with `max_children`, it shows the items around the focus
+  if the focus is in the list, and otherwise the last items of lists and tables, such as the newest messages
+  of a chat, instead of always the first ones. It says how many items it left out before and after them.
+- The bridge protocol version is now 8. Update the add-on and the server together.
+
 ## [1.2.0] - 2026-11-13
 
 ### Changed

@@ -73,3 +73,58 @@ def test_manifest_supports_nvda_2025_1():
     manifest = configparser.ConfigParser()
     manifest.read_string("[addon]\n" + (ADDON_DIR / "manifest.ini").read_text(encoding="utf-8"))
     assert manifest["addon"]["minimumNVDAVersion"].strip('"') == "2025.1"
+
+
+# Standard library modules that NVDA 2025.1 ships. NVDA only bundles the ones it imports itself, so a module
+# missing here, such as secrets, stops the whole add-on loading there: no settings and no commands.
+# Before adding one, check it is in library.zip (or a .pyd file) of NVDA 2025.1.
+NVDA_2025_STANDARD_MODULES = {
+    "base64",
+    "collections",
+    "contextlib",
+    "ctypes",
+    "dataclasses",
+    "difflib",
+    "enum",
+    "hashlib",
+    "hmac",
+    "http",
+    "importlib",
+    "inspect",
+    "itertools",
+    "json",
+    "os",
+    # queue, socket, ssl and urllib: NVDA 2025.1 imports them itself (Remote Access, updateCheck).
+    "queue",
+    "re",
+    "shutil",
+    "socket",
+    "ssl",
+    "struct",
+    "subprocess",
+    "sys",
+    "tempfile",
+    "threading",
+    "time",
+    "types",
+    "typing",
+    "urllib",
+    "webbrowser",
+    "zlib",
+}
+
+
+def test_the_add_on_imports_only_standard_modules_nvda_2025_ships():
+    imported = set()
+    for path in ADDON_DIR.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                names = [node.module]
+            else:
+                continue
+            imported |= {
+                name.split(".")[0] for name in names if name.split(".")[0] in sys.stdlib_module_names
+            }
+    assert imported <= NVDA_2025_STANDARD_MODULES, imported - NVDA_2025_STANDARD_MODULES

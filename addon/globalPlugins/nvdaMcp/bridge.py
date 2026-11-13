@@ -15,7 +15,6 @@ This module does not import NVDA, so it can be unit tested on its own.
 import hmac
 import json
 import os
-import secrets
 import tempfile
 import threading
 from collections.abc import Callable
@@ -23,7 +22,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-PROTOCOL_VERSION = 7
+PROTOCOL_VERSION = 8
 LOOPBACK_HOST = "127.0.0.1"
 MAX_BODY_BYTES = 64 * 1024
 
@@ -139,7 +138,8 @@ class Bridge:
 		self._onError = onError
 		self._requestedPort = port
 		self._addonVersion = addonVersion
-		self.token = secrets.token_urlsafe(32)
+		# NVDA before 2026 does not ship the secrets module; os.urandom is what it uses underneath.
+		self.token = os.urandom(32).hex()
 		self._server: _BridgeHttpServer | None = None
 		self._thread: threading.Thread | None = None
 

@@ -30,6 +30,23 @@ def virtualScreen() -> tuple[int, int, int, int]:
 	)
 
 
+def capturePixels(
+	left: int, top: int, width: int, height: int, scale: float
+) -> tuple[RecogImageInfo, object, str]:
+	"""Take a picture of part of the screen, in the form NVDA's text recognition takes. Runs on NVDA's main thread.
+
+	Returns the picture's size and position, its pixels as a ctypes array, and how it was taken.
+	:raises RuntimeError: When Windows Graphics Capture fails.
+	"""
+	imageInfo = RecogImageInfo(left, top, width, height, scale)
+	# These helpers are private to NVDA's OCR; without them, copy the screen as NVDA did before 2026.
+	shouldUseWgc = getattr(recogUi, "_shouldUseWgcCapture", None)
+	if shouldUseWgc is not None and shouldUseWgc():
+		return imageInfo, recogUi._captureWithWgc(imageInfo), "Windows Graphics Capture"
+	bitmap = screenBitmap.ScreenBitmap(imageInfo.recogWidth, imageInfo.recogHeight)
+	return imageInfo, bitmap.captureImage(left, top, width, height), "GDI"
+
+
 def captureRegion(left: int, top: int, width: int, height: int, scale: float) -> tuple[int, int, bytes, str]:
 	"""Take a picture of part of the screen. Runs on NVDA's main thread.
 
@@ -37,14 +54,5 @@ def captureRegion(left: int, top: int, width: int, height: int, scale: float) ->
 	rows top to bottom) and how it was taken.
 	:raises RuntimeError: When Windows Graphics Capture fails.
 	"""
-	imageInfo = RecogImageInfo(left, top, width, height, scale)
-	# These helpers are private to NVDA's OCR; without them, copy the screen as NVDA did before 2026.
-	shouldUseWgc = getattr(recogUi, "_shouldUseWgcCapture", None)
-	if shouldUseWgc is not None and shouldUseWgc():
-		pixels = recogUi._captureWithWgc(imageInfo)
-		method = "Windows Graphics Capture"
-	else:
-		bitmap = screenBitmap.ScreenBitmap(imageInfo.recogWidth, imageInfo.recogHeight)
-		pixels = bitmap.captureImage(left, top, width, height)
-		method = "GDI"
+	imageInfo, pixels, method = capturePixels(left, top, width, height, scale)
 	return imageInfo.recogWidth, imageInfo.recogHeight, bytes(pixels), method

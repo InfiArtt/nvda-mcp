@@ -19,6 +19,14 @@ CONFIG_SPEC: dict[str, str] = {
 	"allowBrowserInspection": "boolean(default=False)",
 	# Lets MCP clients take pictures of controls on the screen; the pictures go to the client's AI provider.
 	"allowScreenCapture": "boolean(default=False)",
+	# Where MCP Access meets the helper. Only wss:// (TLS) addresses work, except on this computer.
+	# MCP Access helpers ask the person being helped before pressing keys, once per session, whatever
+	# allowControl says; this turns that off completely.
+	"blockAccessControl": "boolean(default=False)",
+	# MCP Access helpers ask before taking pictures of the screen, once per session, whatever
+	# allowScreenCapture says; this turns that off completely.
+	"blockAccessCapture": "boolean(default=False)",
+	"accessRelay": "string(default='wss://infiartt.com/mcp-access/v1')",
 }
 
 

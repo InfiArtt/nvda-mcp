@@ -31,6 +31,16 @@ For people who use NVDA:
 - **Doing repetitive tasks.** The assistant can move through an application with the keyboard,
   type text, switch windows, and wait for something to happen, such as a chat reply.
 - **Learning.** Ask which NVDA commands work where you are, or what a key does here.
+- **Making an application usable.** Tell the assistant "NVDA only says button here". It finds what NVDA
+  cannot read, writes a small add-on that fixes it, tests it with NVDA and packages it for you to install.
+- **Reading what NVDA cannot.** When an application shows NVDA nothing but a "pane", the assistant can read
+  the text on the screen with Windows' text recognition, as NVDA+R does.
+- **Reporting a problem.** The assistant gathers the facts and writes a bug report for the application's
+  developer, for you to send.
+- **Asking any AI, even without MCP.** One NVDA command copies what NVDA sees where you are, ready to paste
+  into ChatGPT, Gemini or any chat.
+- **Getting help from far away.** With MCP Access, someone you trust helps you with their AI assistant,
+  working through your NVDA, while you stay in control and hear every step.
 
 For developers and testers:
 
@@ -71,11 +81,14 @@ Both are free and open source.
 
    Close the command prompt and open a new one, so it finds uv.
 3. **Connect your assistant.** In NVDA, open Settings (NVDA+N, Preferences, Settings), then the
-   **NVDA MCP** category. Choose your assistant under *Set up this MCP client* and press
-   **Copy setup command**.
-   - For Claude Code or Codex CLI, paste the command into a command prompt and press Enter.
-   - For Claude Desktop, Cursor and other assistants that use a settings file, paste the settings into
-     that file. For Claude Desktop, it is `claude_desktop_config.json` (Settings, Developer, Edit Config).
+   **NVDA MCP** category. Choose your assistant under *Set up this MCP client* and press **Set up now**.
+   NVDA asks before it changes anything, then tells you to restart the assistant.
+   - For Claude Desktop, Antigravity and Cursor, NVDA MCP adds itself to the assistant's settings file,
+     keeps the rest of the file, and saves a copy of the old one with `.bak` added to its name.
+   - For Claude Code and Codex CLI, it runs the assistant's own setup command for you.
+   - For other assistants, choose *Other clients*, press **Copy setup command** and paste the settings into
+     the assistant's MCP settings file. **Copy setup command** also works for every assistant above, if you
+     prefer to do it yourself.
 
    The command is like `claude mcp add --scope user nvda -- uvx nvda-mcp==1.0.0`: it tells your assistant to
    run the server version that matches your add-on.
@@ -112,12 +125,19 @@ In NVDA's Settings, **NVDA MCP** category:
 - **Let MCP clients take pictures of controls on the screen** (off by default), for developers who want
   to compare what a control looks like with what NVDA says for it. It works with Screen Curtain on.
 - **Number of spoken messages to remember** (500 by default).
+- **Never let MCP Access helpers press keys** (off by default; NVDA asks you once per session instead).
+- **Never let MCP Access helpers take pictures of the screen** (off by default; NVDA asks you once per session).
+- **MCP Access relay address** (`wss://infiartt.com/mcp-access/v1` by default).
 
 Commands in Input Gestures, NVDA MCP category (no keys assigned by default):
 
 - Report whether NVDA MCP is running and whether it may press keys.
 - Stop MCP clients from pressing keys until you approve again.
 - Open the log of actions MCP clients have taken.
+- Copy what NVDA sees here, to paste into a chat with any AI assistant: the application, the focused control,
+  the controls in the window and what NVDA said last. It works without an MCP client.
+- Share this computer with a helper through MCP Access, or say who is connected.
+- Stop sharing this computer through MCP Access.
 
 How the connection is protected:
 
@@ -127,6 +147,46 @@ How the connection is protected:
 - Requests from web pages are refused.
 - Nothing works on secure screens (sign-in, UAC), and requests are refused while Windows is locked.
 - The settings live in NVDA's base configuration, so a configuration profile cannot turn key presses on.
+
+## MCP Access: help from far away
+
+MCP Access lets someone you trust help you from their own computer, with their AI assistant working through
+**your** NVDA. They see what NVDA sees on your computer, as if their assistant were next to you, and you hear
+everything that happens. The person being helped needs only NVDA and this add-on: no AI assistant, account
+or subscription.
+
+**To get help:**
+
+1. In Input Gestures, NVDA MCP category, give a key to *Shares this computer with a helper through MCP Access*.
+2. Press it. NVDA copies a code such as `K7Q4-9XMC-4TRW-PH3N-AD6F` to the clipboard. Send it to your helper,
+   for example by message. The code works once, for 10 minutes.
+3. When your helper connects, NVDA asks whether to let them see this computer, with **No** focused.
+   It says the name they gave and a short session check you can compare with them.
+4. If they want to press keys, or take pictures of your screen to see what something looks like, NVDA asks you
+   again, once for each of these in this session. You hear every key.
+5. Use *Stops sharing this computer through MCP Access* at any time. Sharing also ends after two hours.
+
+**To help someone:** paste the code they sent into your assistant, for example
+"help my friend, the code is K7Q4-9XMC-4TRW-PH3N-AD6F". Your assistant connects with `nvda_access_connect`;
+every NVDA tool then works on their computer until `nvda_access_disconnect`. Or choose the ready-made prompt
+`help_someone` and paste the code: it also tells the assistant to say before it acts, never to ask for
+passwords, and to disconnect when done. The code is safe to paste: it works once and expires after 10 minutes.
+
+How it is protected:
+
+- **End-to-end encrypted.** The two computers agree on keys made from the code and fresh random keys
+  (X25519 and AES-256-GCM). The relay in between, which InfiArtt runs at `wss://infiartt.com/mcp-access/v1`
+  behind Cloudflare, only forwards data it cannot read, and never sees the code. A code that leaks after
+  a session cannot unlock it.
+- **Strict TLS 1.3** to the relay, with its certificate always checked.
+- **The code works once**, expires after 10 minutes, and the relay limits how often codes can be tried.
+- **You allow the helper first**, and again before their first key press and their first picture of the screen
+  in each session, even if those are off in NVDA MCP's settings. Check *Never let MCP Access helpers press keys*
+  or *Never let MCP Access helpers take pictures of the screen* to refuse them altogether.
+- **Some tools never work through MCP Access:** reloading add-ons, running NVDA commands, NVDA's log and
+  settings, and reading web pages' HTML.
+- **Every connection and action is written** to the action log on your computer.
+- Never tell a helper a password, and close private windows before you share.
 
 ## Privacy
 
@@ -144,6 +204,12 @@ or reads cookies, and NVDA tells you before it connects. Turn remote debugging o
 If you let it take pictures of controls (off by default), each picture shows that part of your screen,
 whatever is there, and goes to the assistant's provider like everything else it reads.
 Every picture is written to the action log.
+
+If you use the command that copies what NVDA sees, read what you paste before you send it:
+it holds the controls and text of the window, and what NVDA said last, which can come from other windows.
+
+The assistant can read text on the screen with Windows' text recognition (`nvda_recognize_text`), like NVDA+R.
+It reads the window or control it is asked about, whatever is shown there, and every use is written to the action log.
 
 - Before you work with something private, such as banking, passwords or personal messages,
   close your assistant or turn off *Let MCP clients connect* in NVDA's settings.
@@ -178,6 +244,9 @@ The assistant sees these tools:
 | `nvda_move_to_element` | Move to, or activate, an element from `nvda_list_elements` |
 | `nvda_get_action_log` | The newest entries of the log of actions clients took |
 | `nvda_audit_focus_order` | Tab through a window and report unlabeled controls, silent controls, duplicate names, keyboard traps |
+| `nvda_access_connect` | Help someone through MCP Access: connect to their NVDA with the code they sent, after they allow it |
+| `nvda_access_disconnect` | End the MCP Access session, so the tools work on this computer again |
+| `nvda_recognize_text` | Read the text on the screen in a window or control with Windows' text recognition (OCR), line by line, when NVDA cannot read it |
 
 For developers of add-ons and accessible applications:
 
@@ -196,12 +265,20 @@ For developers of add-ons and accessible applications:
 | `nvda_list_scripts` | NVDA commands available where focus is, with their keys; or which command a key runs |
 | `nvda_run_script` | Run an NVDA command by name, whatever key it is assigned to |
 | `nvda_reload_plugins` | Reload add-ons and app modules from disk, like NVDA+control+F3 |
+| `nvda_get_addon_paths` | Where add-on code goes: NVDA's developer scratchpad and whether NVDA loads code from it, and the add-ons running |
 | `nvda_get_settings` | Read NVDA's settings as they apply now; values that look like secrets are hidden |
 | `nvda_run_scenario` | Run keys and typing, record what NVDA said after each step, and compare with a baseline file |
 
-Ready-made prompts walk the assistant through common developer tasks with these tools, in the right order:
-`audit_accessibility`, `build_addon`, `why_silent` and `check_labels`. Clients that support MCP prompts offer
-them as commands; in Claude Code, for example, type `/mcp__nvda__audit_accessibility`.
+Ready-made prompts walk the assistant through common tasks with these tools, in the right order:
+
+- For everyone: `explain_screen` (where am I and what can I do here), `make_accessible` (find what stops NVDA
+  in an application, write a small add-on that fixes it, test it and package it), `report_problem`
+  (write a bug report for the application's developer) and `help_someone` (help someone through MCP Access
+  with the code they sent).
+- For developers: `audit_accessibility`, `build_addon`, `why_silent` and `check_labels`.
+
+Clients that support MCP prompts offer them as commands; in Claude Code, for example, type
+`/mcp__nvda__make_accessible`.
 
 Action tools such as `nvda_press_keys` and `nvda_activate_object` take `record`: the result then also says
 what the action changed in the accessibility tree (controls added, removed, renamed or moved, values

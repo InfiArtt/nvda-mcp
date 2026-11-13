@@ -9,6 +9,7 @@ so they must run on NVDA's main thread; :class:`NvdaActions` takes care of that.
 """
 
 import ctypes
+import itertools
 import re
 import threading
 import time
@@ -68,6 +69,9 @@ TREE_TIME_BUDGET_SECONDS = 3.0
 MAX_TREE_NESTING = 100
 MAX_TEXT_LINES = 5000
 DELAY_BETWEEN_KEYS_SECONDS = 0.05
+ACCESS_PICTURE_ANSWER_SECONDS = 100
+# How long to wait after the user answers before taking the picture, so the dialog has left the screen.
+PICTURE_AFTER_DIALOG_SECONDS = 1.0
 FOCUS_RETURN_DELAY_SECONDS = 0.5
 # How long NVDA gets to notice a window brought to the front before it is told.
 FOREGROUND_CATCH_UP_SECONDS = 1.0
@@ -194,6 +198,10 @@ def describeObject(obj: NVDAObject) -> dict[str, Any]:
 	return {key: value for key, value in description.items() if value not in (None, "", [], {})}
 
 
+# Long objects of these roles show their last children when the focus is not in them: chats and logs
+# add their newest entries at the end.
+_NEWEST_LAST_ROLES = frozenset({controlTypes.Role.LIST, controlTypes.Role.TABLE, controlTypes.Role.TREEVIEW})
+
 # Roles that, without a name, only exist for layout: web pages wrap content in many of these.
 _LAYOUT_ROLES = frozenset(
 	{
@@ -230,6 +238,14 @@ def _describeWithAncestors(obj: NVDAObject, ancestors: list[NVDAObject]) -> dict
 
 def _walkTree(root: NVDAObject, maxDepth: int, maxNodes: int, maxChildren: int | None) -> dict[str, Any]:
 	"""Walk the tree below root within limits, as :func:`treeWalk.walkTree` describes."""
+	focusPath = [*api.getFocusAncestors(), api.getFocusObject()]
+
+	def focusChild(obj: NVDAObject) -> NVDAObject | None:
+		for parent, child in itertools.pairwise(focusPath):
+			if parent == obj:
+				return child
+		return None
+
 	return walkTree(
 		root,
 		maxDepth,
@@ -242,6 +258,11 @@ def _walkTree(root: NVDAObject, maxDepth: int, maxNodes: int, maxChildren: int |
 		childCount=lambda obj: _safeGet(obj, "childCount"),
 		timeBudgetSeconds=TREE_TIME_BUDGET_SECONDS,
 		maxNesting=MAX_TREE_NESTING,
+		lastChild=lambda obj: _safeGet(obj, "lastChild"),
+		previousSibling=lambda obj: _safeGet(obj, "previous"),
+		focusChild=focusChild,
+		indexInParent=lambda obj: _safeGet(obj, "indexInParent"),
+		showsNewestLast=lambda obj: _safeGet(obj, "role") in _NEWEST_LAST_ROLES,
 	)
 
 
@@ -743,6 +764,10 @@ class NvdaActions:
 	def __init__(self, speechLog: SpeechLog, actionLog: ActionLog) -> None:
 		self._speechLog = speechLog
 		self._actionLog = actionLog
+		# MCP Access sessions whose helper the user allowed to press keys. A new session asks again.
+		self._approvedAccessSessions: set[str] = set()
+		# MCP Access sessions whose helper the user allowed to take pictures of the screen.
+		self._approvedAccessPictureSessions: set[str] = set()
 		# Records what actions change (interactionRecorder.InteractionRecorder), set by DevTools.
 		self.recorder: Any = None
 		# One action at a time, so concurrent requests cannot interleave keys or steal each other's speech.
@@ -755,6 +780,8 @@ class NvdaActions:
 	def revokeControlApproval(self) -> None:
 		"""Require the user to approve again before the next key press, even if confirmation is turned off."""
 		controlApproval.revoke()
+		self._approvedAccessSessions.clear()
+		self._approvedAccessPictureSessions.clear()
 
 	def handlers(self) -> dict[str, Handler]:
 		return {
@@ -811,6 +838,8 @@ class NvdaActions:
 			"foregroundWindow": _safeGet(foreground, "name") if foreground else None,
 			"isControlAllowed": config.conf[CONFIG_SECTION]["allowControl"],
 			"isControlApprovedThisSession": controlApproval.isApproved(),
+			# MCP Access helpers may ask to press keys even when isControlAllowed is false.
+			"mayAccessHelpersAskToPressKeys": not config.conf[CONFIG_SECTION]["blockAccessControl"],
 			"allowedApps": sorted(parseAllowedApps(config.conf[CONFIG_SECTION]["allowedApps"])) or "all",
 			"documentMode": _documentMode(),
 			"lastSpeechId": self._speechLog.lastId,
@@ -1444,6 +1473,8 @@ class NvdaActions:
 		settleSeconds = float(params.get("settleMs", 400)) / 1000
 		timeoutSeconds = float(params.get("timeoutMs", 3000)) / 1000
 		clientName = params.get("clientName") if isinstance(params.get("clientName"), str) else None
+		# Set by MCP Access for a helper's requests, so the person being helped is asked for each session.
+		accessSession = params.get("viaAccess") if isinstance(params.get("viaAccess"), str) else None
 		listenSeconds = timeoutSeconds
 		recording = None
 		if params.get("record") is not None:
@@ -1454,7 +1485,7 @@ class NvdaActions:
 			listenSeconds += self.recorder.extraSeconds
 		deadline = controlApproval.startDeadline(time.monotonic(), listenSeconds)
 		with self._controlTurn(deadline):
-			self._ensureControlAllowed(clientName, deadline)
+			self._ensureControlAllowed(clientName, deadline, accessSession)
 			foreground = wxCallOnMain(api.getForegroundObject)
 			window = wxCallOnMain(_safeGet, foreground, "name") if foreground else None
 			if targetApp is None:
@@ -1545,25 +1576,39 @@ class NvdaActions:
 		finally:
 			self._controlLock.release()
 
-	def _ensureControlAllowed(self, clientName: str | None, deadline: float) -> None:
+	def _ensureControlAllowed(
+		self, clientName: str | None, deadline: float, accessSession: str | None = None
+	) -> None:
 		"""
 		:param clientName: The name the MCP client gave itself, such as "Claude Code", to show the user.
 		:param deadline: When the user's answer comes too late, from time.monotonic().
+		:param accessSession: The MCP Access session a helper's request came through. The user is asked once
+			per session whatever allowControl says, so they need not change settings while asking for help,
+			unless they turned MCP Access key presses off altogether.
 		"""
 		sectionConfig = config.conf[CONFIG_SECTION]
-		if not sectionConfig["allowControl"]:
+		if accessSession is not None:
+			if sectionConfig["blockAccessControl"]:
+				raise BridgeError(
+					"controlDisabled",
+					"The person being helped does not let MCP Access helpers press keys. Guide them to press the keys "
+					"themselves instead.",
+				)
+			if accessSession in self._approvedAccessSessions:
+				return
+		elif not sectionConfig["allowControl"]:
 			raise BridgeError(
 				"controlDisabled",
 				"Pressing keys is turned off. Ask the user to enable it in NVDA Settings, NVDA MCP category.",
 			)
-		if controlApproval.isApproved():
-			return
-		if not (sectionConfig["confirmControl"] or controlApproval.wasRevoked()):
+		elif controlApproval.isApproved() or not (
+			sectionConfig["confirmControl"] or controlApproval.wasRevoked()
+		):
 			return
 		secondsLeft = deadline - time.monotonic()
 		if secondsLeft < controlApproval.MIN_ANSWER_SECONDS:
 			raise _controlBusyError()
-		answer = wxCallOnMain(self._askForControlApproval, clientName, secondsLeft)
+		answer = wxCallOnMain(self._askForControlApproval, clientName, secondsLeft, accessSession is not None)
 		if answer is None:
 			raise BridgeError(
 				"approvalTimedOut",
@@ -1575,15 +1620,107 @@ class NvdaActions:
 				"controlDenied",
 				"The user declined to let this client press keys. Do not retry unless they ask.",
 			)
-		controlApproval.approve()
+		if accessSession is not None:
+			self._approvedAccessSessions.add(accessSession)
+		else:
+			controlApproval.approve()
 		# Give Windows time to hand focus back to the user's window before keys are sent.
 		time.sleep(FOCUS_RETURN_DELAY_SECONDS)
 
+	def ensureAccessPicturesAllowed(self, params: dict[str, Any]) -> bool:
+		"""For a picture of the screen: whether an MCP Access helper asks, after the user allowed it this session.
+
+		Runs on the bridge's thread, since it may wait for the user's answer.
+		:return: False for requests from this computer, which follow the allowScreenCapture setting instead.
+		:raises BridgeError: When the user refuses, does not answer, or never lets helpers take pictures.
+		"""
+		accessSession = params.get("viaAccess") if isinstance(params.get("viaAccess"), str) else None
+		if accessSession is None:
+			return False
+		if config.conf[CONFIG_SECTION]["blockAccessCapture"]:
+			raise BridgeError(
+				"screenCaptureDisabled",
+				"The person being helped does not let MCP Access helpers take pictures of their screen. "
+				"Use nvda_recognize_text or the accessibility tree instead.",
+			)
+		if accessSession in self._approvedAccessPictureSessions:
+			return True
+		clientName = params.get("clientName") if isinstance(params.get("clientName"), str) else None
+		answer = wxCallOnMain(
+			self._askForAccessPictures, clientName or "A helper", ACCESS_PICTURE_ANSWER_SECONDS
+		)
+		if answer is None:
+			raise BridgeError(
+				"approvalTimedOut",
+				"NVDA asked the person being helped to allow pictures of their screen, but they did not answer "
+				"in time, so no picture was taken.",
+			)
+		if not answer:
+			raise BridgeError(
+				"screenCaptureDenied",
+				"The person being helped declined to let you take pictures of their screen. Do not retry unless "
+				"they ask; use nvda_recognize_text or the accessibility tree instead.",
+			)
+		self._approvedAccessPictureSessions.add(accessSession)
+		# The dialog must be gone and the window behind it redrawn, or the picture shows the dialog.
+		time.sleep(PICTURE_AFTER_DIALOG_SECONDS)
+		return True
+
 	@staticmethod
-	def _askForControlApproval(clientName: str | None, timeoutSeconds: float) -> bool | None:
+	def _askForAccessPictures(clientName: str, timeoutSeconds: float) -> bool | None:
+		"""Ask the person being helped whether their MCP Access helper may take pictures of the screen.
+
+		:return: The answer, or None if they did not answer in time.
+		"""
+		import wx
+		from gui import mainFrame
+		from gui.message import DefaultButtonSet, DialogType, MessageDialog, ReturnCode
+
+		# Translators: Title of the dialog asking whether an MCP Access helper may take pictures of the screen.
+		# {client} is the name the helper gives itself, such as "Rafli through MCP Access".
+		title = _("NVDA MCP: allow {client} to take pictures of the screen?").format(client=clientName)
+		dialog = MessageDialog(
+			mainFrame,
+			# Translators: Asks the person being helped whether their MCP Access helper may take pictures.
+			# {client} is the name the helper gives itself, such as "Rafli through MCP Access".
+			_(
+				"{client} wants to take pictures of parts of this computer's screen, to see what a control looks "
+				"like. Each picture shows whatever is on the screen there and is sent to their AI assistant. "
+				"Every picture is written to the action log.\n\n"
+				"Allow this for this MCP Access session only?"
+			).format(client=clientName),
+			title,
+			dialogType=DialogType.WARNING,
+			buttons=DefaultButtonSet.YES_NO,
+		)
+		dialog.setDefaultFocus(ReturnCode.NO)
+		dialog.setFallbackAction(ReturnCode.NO)
+		timedOut = False
+
+		def expire() -> None:
+			nonlocal timedOut
+			timedOut = True
+			dialog.Close()
+
+		timer = wx.CallLater(int(timeoutSeconds * 1000), expire)
+		mainFrame.prePopup()
+		try:
+			answer = dialog.ShowModal()
+		finally:
+			timer.Stop()
+			mainFrame.postPopup()
+		if timedOut:
+			return None
+		return answer == ReturnCode.YES
+
+	@staticmethod
+	def _askForControlApproval(
+		clientName: str | None, timeoutSeconds: float, forAccess: bool = False
+	) -> bool | None:
 		"""Ask the user whether the client may press keys.
 
 		:param timeoutSeconds: Close the dialog after this long, since the client stops waiting for the answer.
+		:param forAccess: A helper asks through MCP Access; the answer lasts for that session only.
 		:return: The answer, or None if the user did not answer in time.
 		"""
 		import wx
@@ -1604,16 +1741,27 @@ class NvdaActions:
 			title = _("NVDA MCP: allow an MCP client to press keys?")
 		# The title says who asks and what for, since NVDA always speaks it;
 		# the message is spoken only when reporting object descriptions is on (NVDA+B reads it anyway).
-		dialog = MessageDialog(
-			mainFrame,
+		if forAccess:
+			# Translators: Asks the person being helped whether their MCP Access helper may press keys.
+			# {who} is who is asking, such as "An MCP client calling itself Rafli through MCP Access".
+			message = _(
+				"{who} wants to press keys on this computer through NVDA, for example to move through an "
+				"application with Tab. You hear every key through NVDA, and you can stop sharing at any time. "
+				"Keys go to whichever window is active.\n\n"
+				"Allow this for this MCP Access session only?"
+			).format(who=who)
+		else:
 			# Translators: Asks the user whether an AI assistant may press keys through NVDA.
 			# {who} is who is asking, such as "An MCP client calling itself Claude Code".
-			_(
+			message = _(
 				"{who} wants to press keys on this computer through NVDA, "
 				"for example to move through an application with Tab. "
 				"Keys go to whichever window is active.\n\n"
 				"Allow this until NVDA restarts?"
-			).format(who=who),
+			).format(who=who)
+		dialog = MessageDialog(
+			mainFrame,
+			message,
 			title,
 			dialogType=DialogType.WARNING,
 			buttons=DefaultButtonSet.YES_NO,

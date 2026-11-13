@@ -13,9 +13,12 @@ import base64
 import os
 import re
 import sys
+import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
+import addonHandler
 import api
 import config
 import controlTypes
@@ -44,7 +47,7 @@ except ImportError:
 	# Before NVDA 2026.3, braille was a module rather than a package.
 	from braille import pre_writeCells
 
-from . import apiLookup, nvdaLog, screenCapture, screenImage, windows
+from . import apiLookup, nvdaLog, ocrText, screenCapture, screenImage, windows
 from .bridge import BridgeError, Handler
 from .configSpec import CONFIG_SECTION
 from .interactionRecorder import InteractionRecorder, Recording, rootLabel
@@ -77,6 +80,8 @@ MAX_CAPTURE_SIDE = 1600
 MIN_CAPTURE_SIDE = 200
 MAX_CAPTURE_ZOOM = 4.0
 MAX_CAPTURE_PADDING = 200
+# How long Windows may take to recognize text on the screen.
+OCR_TIMEOUT_SECONDS = 20.0
 OUTPUT_KINDS = ("beep", "sound", "braille", "speechCanceled")
 # Events NVDA gets from the Windows accessibility APIs, which eventHandler.requestEvents can let through
 # from a background window. Others, such as gainFocus, only matter in the foreground.
@@ -466,7 +471,9 @@ class DevTools:
 			"previewSpeech": onMain(self._previewSpeech),
 			"getSettings": onMain(self._getSettings),
 			"lookupApi": self._lookupApi,
-			"captureControl": onMain(self._captureControl),
+			"captureControl": self._captureControlEntry,
+			"recognizeText": self._recognizeText,
+			"getAddonPaths": onMain(self._getAddonPaths),
 		}
 
 	def _lookupApi(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -488,8 +495,14 @@ class DevTools:
 		result["nvdaVersion"] = versionInfo.version
 		return result
 
-	def _captureControl(self, params: dict[str, Any]) -> dict[str, Any]:
-		if not config.conf[CONFIG_SECTION]["allowScreenCapture"]:
+	def _captureControlEntry(self, params: dict[str, Any]) -> dict[str, Any]:
+		self._actions.ensureUnlocked()
+		# A helper through MCP Access asks the person being helped, who may answer while this thread waits.
+		viaAccess = self._actions.ensureAccessPicturesAllowed(params)
+		return wxCallOnMain(self._captureControl, params, viaAccess)
+
+	def _captureControl(self, params: dict[str, Any], viaAccess: bool = False) -> dict[str, Any]:
+		if not viaAccess and not config.conf[CONFIG_SECTION]["allowScreenCapture"]:
 			raise BridgeError(
 				"screenCaptureDisabled",
 				"Taking pictures of the screen is turned off. Ask the user to check "
@@ -546,6 +559,121 @@ class DevTools:
 			"method": method,
 			"windowInFront": inFront,
 			"png": base64.b64encode(png).decode("ascii"),
+		}
+
+	def _recognizeText(self, params: dict[str, Any]) -> dict[str, Any]:
+		self._actions.ensureUnlocked()
+		finished = threading.Event()
+		outcome: dict[str, Any] = {}
+
+		def onResult(result: Any) -> None:
+			outcome["result"] = result
+			finished.set()
+
+		started = wxCallOnMain(self._startRecognition, params, onResult)
+		if not finished.wait(OCR_TIMEOUT_SECONDS):
+			wxCallOnMain(started["recognizer"].cancel)
+			raise BridgeError(
+				"ocrTimedOut", "Windows took too long to recognize the text. Try a smaller area."
+			)
+		result = outcome["result"]
+		if isinstance(result, Exception):
+			raise BridgeError("ocrFailed", f"Windows could not recognize text there ({result}).")
+		left, top = started["region"][:2]
+		lines = ocrText.linesFromWords(getattr(result, "data", None) or [], left, top, started["scale"])
+		if config.conf[CONFIG_SECTION]["logActions"]:
+			try:
+				self._actions._actionLog.record(
+					"recognizeText", started["object"].get("name"), app=started["app"]
+				)
+			except OSError:
+				log.error("NVDA MCP could not write its action log", exc_info=True)
+		return {
+			**started["object"],
+			"region": started["region"],
+			"language": started["recognizer"].language,
+			"method": started["method"],
+			"lines": lines,
+		}
+
+	def _startRecognition(self, params: dict[str, Any], onResult: Callable[[Any], None]) -> dict[str, Any]:
+		"""Take the picture and hand it to Windows OCR, which answers on another thread. Runs on the main thread."""
+		from contentRecog import uwpOcr
+
+		obj = (
+			api.getForegroundObject()
+			if params.get("target") == "foreground" and params.get("id") is None
+			else (self._target(params))
+		)
+		states = _safeGet(obj, "states") or set()
+		location = _safeGet(obj, "location")
+		region = (
+			screenImage.captureRegion(tuple(location), 0, screenCapture.virtualScreen())
+			if location and controlTypes.State.INVISIBLE not in states
+			else None
+		)
+		if region is None or controlTypes.State.OFFSCREEN in states:
+			raise BridgeError(
+				"notOnScreen",
+				"NVDA reports no position on the screen for this, so there is no text to recognize. "
+				"Bring it into view first.",
+			)
+		try:
+			recognizer = uwpOcr.UwpOcr()
+		except LookupError:
+			raise BridgeError(
+				"ocrUnavailable",
+				"Windows has no text recognition languages installed. The user can add one in Windows Settings, "
+				"Time and language, Language and region.",
+			)
+		scale = recognizer.getResizeFactor(region[2], region[3])
+		try:
+			imageInfo, pixels, method = screenCapture.capturePixels(*region, scale)
+		except Exception as error:  # noqa: BLE001 - Windows Graphics Capture raises RuntimeError and others
+			log.debugWarning("Could not take a picture of the screen", exc_info=True)
+			raise BridgeError("captureFailed", f"NVDA could not read the screen there ({error}).")
+		# Windows reads the pixels while it recognizes them, so they are kept until it answers.
+		self._ocrPixels = pixels
+		recognizer.recognize(pixels, imageInfo, onResult)
+		return {
+			"object": describeObject(obj),
+			"app": _appNameOf(obj),
+			"region": list(region),
+			"scale": scale,
+			"method": method,
+			"recognizer": recognizer,
+		}
+
+	def _getAddonPaths(self, params: dict[str, Any]) -> dict[str, Any]:
+		configPath = globalVars.appArgs.configPath
+		try:
+			import NVDAState
+
+			scratchpad = NVDAState.WritePaths.scratchpadDir
+		except (ImportError, AttributeError):
+			scratchpad = os.path.join(configPath, "scratchpad")
+		addons = []
+		for addon in addonHandler.getRunningAddons():
+			addons.append(
+				{
+					"name": addon.name,
+					"summary": addon.manifest.get("summary"),
+					"version": addon.version,
+					"path": addon.path,
+				}
+			)
+		return {
+			"nvdaVersion": versionInfo.version,
+			"configPath": configPath,
+			"scratchpadPath": scratchpad,
+			"scratchpadEnabled": bool(config.conf["development"]["enableScratchpadDir"]),
+			"scratchpadFolders": [
+				name
+				for name in ("appModules", "globalPlugins", "brailleDisplayDrivers", "synthDrivers")
+				if os.path.isdir(os.path.join(scratchpad, name))
+			],
+			"addonsPath": os.path.join(configPath, "addons"),
+			"runningAddons": addons,
 		}
 
 	def _getLog(self, params: dict[str, Any]) -> dict[str, Any]:
