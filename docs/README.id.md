@@ -2,48 +2,62 @@
 
 NVDA MCP menghubungkan asisten AI dengan pembaca layar [NVDA](https://www.nvaccess.org) melalui
 [Model Context Protocol](https://modelcontextprotocol.io) (MCP).
-Asisten bisa membaca apa yang dibaca NVDA dan mendengar apa yang diucapkan NVDA. Jika Anda izinkan, asisten juga
-bisa menekan tombol, dan Anda mendengar setiap langkahnya lewat NVDA, seolah-olah Anda sendiri yang menekannya.
+Asisten bekerja dari apa yang diketahui dan diucapkan NVDA, bertindak lewat NVDA, dan mendengar hasilnya. Karena
+itu asisten bisa mengerjakan yang paling dibutuhkan pengguna pembaca layar: membuat aplikasi yang tidak bisa
+dipakai dengan NVDA menjadi bisa dipakai, mencari tahu mengapa NVDA diam, dan membantu orang lain dari jauh.
+Anda mendengar setiap langkahnya, dan kendali tetap di tangan Anda.
 
 ## Mengapa add-on ini ada
 
-Asisten AI sekarang bisa mengerjakan sesuatu di komputer, bukan hanya menjawab pertanyaan. Kebanyakan bekerja
-dengan melihat tangkapan layar lalu mengeklik apa yang terlihat. Bagi pengguna pembaca layar, ada dua masalah:
+Masih banyak aplikasi yang tidak bisa dipakai dengan pembaca layar. NVDA hanya mengucapkan "tombol" atau
+"panel", dan orang yang membutuhkan aplikasi itu tidak bisa memakainya. Selama ini hanya ada dua jalan: menunggu
+pembuat aplikasinya memperbaiki, yang sering tidak pernah terjadi, atau menulis add-on NVDA, yang butuh keahlian
+dan berjam-jam pengujian dengan telinga, dengan pengguna tunanetra mencoba setiap perubahan lalu melaporkan apa
+yang diucapkan NVDA.
 
-- **Anda tidak bisa mengikuti apa yang dikerjakan asisten.** Ia mengeklik hal-hal yang tidak pernah Anda dengar,
-  di tempat yang mungkin tidak ditampilkan pembaca layar Anda.
-- **Tangkapan layar bukan yang Anda alami.** Yang penting bagi pengguna pembaca layar adalah kontrol mana yang
-  sedang fokus, nama, peran dan statusnya, serta apa yang diucapkan NVDA tentangnya. Gambar layar tidak memuat
-  sebagian besar informasi itu.
+Asisten AI yang bisa menulis kode tidak menyelesaikan ini sendirian, karena ia tidak bisa mendengar apa yang
+didengar pengguna pembaca layar. Data aksesibilitas mentah dari Windows bukan apa yang diucapkan NVDA: NVDA
+menggabungkan beberapa antarmuka aksesibilitas, mode jelajah, dan add-on yang Anda pasang. Asisten yang memakai
+komputer dengan melihat tangkapan layar juga meninggalkan pengguna pembaca layar: ia mengeklik hal-hal yang tidak
+pernah Anda dengar, dan gambar layar bukan apa yang Anda alami.
 
-NVDA sudah mengetahui semua itu, karena begitulah cara Anda memakai komputer. NVDA MCP memberi asisten pandangan
-yang sama: kontrol yang sedang fokus, pohon aksesibilitas, teks dokumen atau halaman web, dan persis apa yang
-diucapkan NVDA. Saat asisten bertindak, ia memakai keyboard melalui NVDA, seperti yang Anda lakukan, dan NVDA
-mengumumkan hasilnya. Anda dan asisten bekerja dari informasi yang sama, dan kendali tetap di tangan Anda.
+NVDA MCP memberi asisten pandangan dan suara NVDA: kontrol yang sedang fokus, pohon aksesibilitas, teks dokumen
+atau halaman web, dan persis apa yang diucapkan NVDA. Dengan itu, asisten bisa menyelesaikan seluruh
+lingkarannya sendiri. Ia mencari apa yang tidak bisa dibaca NVDA, menulis add-on kecil untuk memperbaikinya,
+memuatnya ke NVDA yang sedang berjalan, lalu mendengar sendiri apakah NVDA sekarang mengucapkan yang benar.
+Orang yang membutuhkan perbaikan tidak lagi menjadi pengujinya: cukup bilang "ini tidak bisa dipakai",
+mendengarkan, dan memutuskan. Dari pengguna menjadi pembuat.
+
+Saat asisten bertindak, ia memakai keyboard melalui NVDA, seperti yang Anda lakukan, hanya setelah Anda
+mengizinkannya, dan NVDA mengumumkan setiap langkahnya. Dengan MCP Access, asisten juga bisa membantu orang lain
+dari jauh, lewat NVDA mereka dan dengan izin mereka.
+
+Add-on [Proton VPN Accessibility](https://github.com/InfiArtt/protonvpn-nvda) dan
+[NYK DAEMON82 MKN-09 Access](https://github.com/InfiArtt/nyk-daemon82-nvda) dibuat dengan cara ini.
 
 ## Kegunaannya
 
 Untuk pengguna NVDA:
 
-- **"NVDA tadi bilang apa?"** Asisten membaca riwayat ucapan NVDA, jadi Anda bisa bertanya tentang sesuatu yang
-  terlewat, atau meminta ringkasan dialog yang panjang.
-- **Melewati aplikasi yang membingungkan atau tidak aksesibel.** Tanyakan apa isi sebuah jendela, di mana sebuah
-  kontrol, atau mengapa sebuah tombol tidak bernama, dan dapatkan jawaban berdasarkan apa yang benar-benar
-  dilihat NVDA.
-- **Mengerjakan tugas berulang.** Asisten bisa berpindah di dalam aplikasi dengan keyboard, mengetik teks,
-  berganti jendela, dan menunggu sesuatu terjadi, misalnya balasan chat.
-- **Belajar.** Tanyakan perintah NVDA apa saja yang berlaku di tempat Anda berada, atau apa fungsi sebuah tombol di sini.
 - **Membuat aplikasi bisa dipakai.** Katakan kepada asisten "NVDA cuma bilang tombol di sini". Asisten mencari
   apa yang tidak bisa dibaca NVDA, menulis add-on kecil yang memperbaikinya, mengujinya dengan NVDA, lalu
   mengemasnya supaya bisa Anda pasang.
-- **Membaca yang tidak bisa dibaca NVDA.** Saat sebuah aplikasi hanya terbaca "panel", asisten bisa membaca
-  teks di layar dengan pengenalan teks Windows, seperti NVDA+R.
-- **Melaporkan masalah.** Asisten mengumpulkan faktanya dan menulis laporan bug untuk pembuat aplikasi,
-  untuk Anda kirim sendiri.
-- **Bertanya ke AI mana pun, bahkan tanpa MCP.** Satu perintah NVDA menyalin apa yang dilihat NVDA di tempat
-  Anda berada, siap ditempel ke ChatGPT, Gemini, atau chat apa pun.
 - **Mendapat bantuan dari jauh.** Dengan MCP Access, orang yang Anda percaya membantu dengan asisten AI-nya
   lewat NVDA Anda, sementara Anda tetap memegang kendali dan mendengar setiap langkahnya.
+- **Membaca yang tidak bisa dibaca NVDA.** Saat sebuah aplikasi hanya terbaca "panel", asisten bisa membaca
+  teks di layar dengan pengenalan teks Windows, seperti NVDA+R.
+- **Melewati aplikasi yang membingungkan.** Tanyakan Anda sedang di mana, apa isi sebuah jendela, di mana sebuah
+  kontrol, atau mengapa sebuah tombol tidak bernama, dan dapatkan jawaban berdasarkan apa yang benar-benar
+  dilihat NVDA, lengkap dengan tombol yang perlu ditekan.
+- **Melaporkan masalah.** Asisten mengumpulkan faktanya dan menulis laporan bug untuk pembuat aplikasi,
+  untuk Anda kirim sendiri.
+- **Mengerjakan tugas berulang.** Asisten bisa berpindah di dalam aplikasi dengan keyboard, mengetik teks,
+  berganti jendela, dan menunggu sesuatu terjadi, misalnya balasan chat.
+- **Belajar.** Tanyakan perintah NVDA apa saja yang berlaku di tempat Anda berada, atau apa fungsi sebuah tombol di sini.
+- **Bertanya ke AI mana pun, bahkan tanpa MCP.** Satu perintah NVDA menyalin apa yang dilihat NVDA di tempat
+  Anda berada, siap ditempel ke ChatGPT, Gemini, atau chat apa pun.
+- **Bertanya tentang yang Anda dengar.** Asisten bisa membaca apa yang diucapkan NVDA, untuk mengulang sesuatu
+  yang terlewat atau meringkas dialog yang panjang.
 
 Untuk developer dan penguji:
 
@@ -65,7 +79,8 @@ Untuk developer dan penguji:
 - **Developer aplikasi Windows dan situs web**, yang ingin memeriksa hasil kerja mereka dengan pembaca layar sungguhan.
 - **Penguji aksesibilitas, auditor, dan tim QA**, yang membutuhkan pemeriksaan berulang atas apa yang diumumkan
   pembaca layar.
-- **Pelatih dan staf dukungan** yang membantu pengguna pembaca layar dan ingin memahami apa yang mereka dengar.
+- **Teman, relawan, pelatih, dan staf dukungan** yang membantu pengguna pembaca layar, dari sebelahnya atau,
+  dengan MCP Access, dari jauh.
 
 ## Yang dibutuhkan
 

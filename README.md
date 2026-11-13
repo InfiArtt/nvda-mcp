@@ -2,45 +2,57 @@
 
 NVDA MCP connects AI assistants to the [NVDA](https://www.nvaccess.org) screen reader through the
 [Model Context Protocol](https://modelcontextprotocol.io) (MCP).
-The assistant can read what NVDA reads and hear what NVDA says. If you allow it, it can also press keys,
-and you hear every step through NVDA, as if you had pressed them yourself.
+The assistant works from what NVDA knows and says, acts through NVDA, and hears the result. So it can do what
+screen reader users need most: make an application that does not work with NVDA usable, find out why NVDA is
+silent, and help someone from far away. You hear every step, and you stay in control.
 
 ## Why it exists
 
-AI assistants can now do things on a computer, not just answer questions. Most of them work by looking at
-screenshots and clicking on what they see. For someone who uses a screen reader, that has two problems:
+Many applications still do not work with a screen reader. NVDA says only "button" or "pane", and the person who
+needs the application cannot use it. Until now there were two ways out: wait for its developer to fix it, which
+often never happens, or write an NVDA add-on, which takes skill and hours of testing by ear, with the blind user
+trying every change and reporting what NVDA said.
 
-- **You can't follow what the assistant does.** It clicks things you never hear about, in places your
-  screen reader may not even show you.
-- **A screenshot is not what you experience.** What matters to a screen reader user is which control has
-  focus, its name, role and state, and what NVDA says about it. A picture of the screen leaves most of that out.
+AI assistants that write code do not solve this on their own, because they cannot hear what a screen reader user
+hears. The raw accessibility data of Windows is not what NVDA says: NVDA combines several accessibility
+interfaces, browse mode and the add-ons you have installed. And assistants that use a computer by looking at
+screenshots leave screen reader users out: they click things you never hear about, and a picture of the screen is
+not what you experience.
 
-NVDA already knows all of this, because it is how you use your computer. NVDA MCP gives the assistant the same
-view: the focused control, the accessibility tree, the text of a document or web page, and exactly what NVDA
-said. When the assistant acts, it uses the keyboard through NVDA, the way you would, and NVDA announces the result.
-You and the assistant work from the same information, and you stay in control.
+NVDA MCP gives the assistant NVDA's view and NVDA's voice: the focused control, the accessibility tree, the text
+of a document or web page, and exactly what NVDA said. With that, the assistant can close the whole loop itself.
+It finds what NVDA cannot read, writes a small add-on that fixes it, loads it into the NVDA that is running, and
+hears whether NVDA now says the right thing. The person who needs the fix is no longer the tester: they say
+"this does not work", listen, and decide. From user to builder.
+
+When the assistant acts, it uses the keyboard through NVDA, the way you would, only after you allow it, and NVDA
+announces every step. With MCP Access, it can also help someone else from far away, through their NVDA and with
+their permission.
+
+The add-ons [Proton VPN Accessibility](https://github.com/InfiArtt/protonvpn-nvda) and
+[NYK DAEMON82 MKN-09 Access](https://github.com/InfiArtt/nyk-daemon82-nvda) were made this way.
 
 ## What it is useful for
 
 For people who use NVDA:
 
-- **"What did NVDA just say?"** The assistant reads NVDA's speech history, so you can ask about something
-  you missed, or ask for a summary of a long dialog.
-- **Getting through confusing or inaccessible applications.** Ask what is in a window, where a control is,
-  or why a button has no name, and get an answer based on what NVDA actually sees.
+- **Making an application usable.** Tell the assistant "NVDA only says button here". It finds what NVDA
+  cannot read, writes a small add-on that fixes it, tests it with NVDA and packages it for you to install.
+- **Getting help from far away.** With MCP Access, someone you trust helps you with their AI assistant,
+  working through your NVDA, while you stay in control and hear every step.
+- **Reading what NVDA cannot.** When an application shows NVDA nothing but a "pane", the assistant can read
+  the text on the screen with Windows' text recognition, as NVDA+R does.
+- **Getting through confusing applications.** Ask where you are, what a window holds, where a control is or why
+  a button has no name, and get an answer based on what NVDA actually sees, with the keys to press.
+- **Reporting a problem.** The assistant gathers the facts and writes a bug report for the application's
+  developer, for you to send.
 - **Doing repetitive tasks.** The assistant can move through an application with the keyboard,
   type text, switch windows, and wait for something to happen, such as a chat reply.
 - **Learning.** Ask which NVDA commands work where you are, or what a key does here.
-- **Making an application usable.** Tell the assistant "NVDA only says button here". It finds what NVDA
-  cannot read, writes a small add-on that fixes it, tests it with NVDA and packages it for you to install.
-- **Reading what NVDA cannot.** When an application shows NVDA nothing but a "pane", the assistant can read
-  the text on the screen with Windows' text recognition, as NVDA+R does.
-- **Reporting a problem.** The assistant gathers the facts and writes a bug report for the application's
-  developer, for you to send.
 - **Asking any AI, even without MCP.** One NVDA command copies what NVDA sees where you are, ready to paste
   into ChatGPT, Gemini or any chat.
-- **Getting help from far away.** With MCP Access, someone you trust helps you with their AI assistant,
-  working through your NVDA, while you stay in control and hear every step.
+- **Asking about what you heard.** The assistant can read what NVDA said, to repeat something you missed or
+  sum up a long dialog.
 
 For developers and testers:
 
@@ -57,7 +69,8 @@ For developers and testers:
 - **NVDA add-on developers**, who can test what their add-on makes NVDA say without doing every step by hand.
 - **Developers of Windows applications and websites**, who want to check their work with a real screen reader.
 - **Accessibility testers, auditors and QA teams**, who need repeatable checks of what a screen reader announces.
-- **Trainers and support staff** who help screen reader users and want to understand what they hear.
+- **Friends, volunteers, trainers and support staff** who help screen reader users, from next to them or,
+  with MCP Access, from far away.
 
 ## What you need
 
