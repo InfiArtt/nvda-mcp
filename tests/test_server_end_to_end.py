@@ -115,6 +115,8 @@ class FakeWindow:
         self.index = 0
         self.allow_control = allow_control
         self.accepts_values = accepts_values
+        self.value = ""
+        self.focus_extra = {}
         self.speech = SpeechLog(maxEntries=100)
         self.calls = {}
 
@@ -126,6 +128,7 @@ class FakeWindow:
             "appName": "demo",
             "location": [self.index, 0, 10, 10],
             "ancestors": ["Demo (window)"],
+            **self.focus_extra,
         }
 
     def press_keys(self, params):
@@ -176,12 +179,13 @@ class FakeWindow:
 
     def set_value(self, params):
         self.calls["setValue"] = params
-        value = params["text"] if self.accepts_values else ""
+        if self.accepts_values:
+            self.value = self.value + params["text"] if params.get("append") else params["text"]
         return {
             "speech": [],
             "focus": self.focus(),
             "method": "IAccessible accValue",
-            "object": {"name": "Type a message", "role": "edit", "value": value},
+            "object": {"name": "Type a message", "role": "edit", "value": self.value},
         }
 
     def trace_events(self, params):
@@ -629,6 +633,43 @@ async def test_set_value_reports_whether_the_control_took_the_text(connect):
     async with Client(server.mcp) as client:
         refused = text_of(await client.call_tool("nvda_set_value", {"text": "halo"}))
     assert "The control now reads '', not the text sent: it may not accept text this way." in refused
+
+
+async def test_set_value_can_add_text_after_what_the_field_has(connect):
+    window = connect(FakeWindow([("Notes", "edit")]))
+    window.value = "First part\r\n"
+    async with Client(server.mcp) as client:
+        added = text_of(await client.call_tool("nvda_set_value", {"text": "second part", "append": True}))
+        appended_with = window.calls["setValue"]
+        replaced = text_of(await client.call_tool("nvda_set_value", {"text": "only this"}))
+    assert appended_with["append"] is True and appended_with["text"] == "second part"
+    assert added.startswith("Set through IAccessible accValue. The text was added at the end.\n")
+    assert "append" not in window.calls["setValue"]
+    assert replaced.startswith("Set through IAccessible accValue. The control now has this text.\n")
+
+
+async def test_a_long_value_is_shown_by_its_start_and_end(connect):
+    window = connect(FakeWindow([("History", "edit")]))
+    window.focus_extra = {"value": "Server name\n" + "x" * 130_000 + "\nKak fian says hilaw"}
+    async with Client(server.mcp) as client:
+        focus = text_of(await client.call_tool("nvda_get_focus", {}))
+        pressed = text_of(await client.call_tool("nvda_press_keys", {"keys": ["tab"]}))
+    for text in (focus, pressed):
+        assert len(text) < 3000
+        assert "- Value: Server name\n" in text
+        assert "characters left out; nvda_get_text reads all 130032" in text
+        assert "Kak fian says hilaw" in text
+
+
+async def test_the_focus_report_names_a_window_in_front_that_nvda_has_not_caught_up_with(connect):
+    window = connect(FakeWindow([("Task switcher", "list item")]))
+    window.focus_extra = {"foregroundWindow": "Untitled - Notepad"}
+    async with Client(server.mcp) as client:
+        pressed = text_of(await client.call_tool("nvda_press_keys", {"keys": ["control+end"]}))
+    assert (
+        "- Window in front: Untitled - Notepad. NVDA's focus is not in it yet: it may still be catching up, "
+        "so read the focus again before typing." in pressed
+    )
 
 
 async def test_until_speech_reports_whether_the_expected_announcement_came(connect):

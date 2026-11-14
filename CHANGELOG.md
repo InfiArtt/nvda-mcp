@@ -8,6 +8,48 @@ install them together.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-14
+
+What is new, in short: MCP Access is harder to misuse. The person being helped can no longer get the
+helper's assistant to act on the helper's computer or give away the helper's information, and text that
+carries the helper's folders or a secret is refused before it leaves. Long values, such as a chat history, no
+longer flood results, and `nvda_set_value` can add text at the end.
+
+### Added
+
+- `nvda_set_value` takes `append`, to add text after what a field already has. Long text can be written in
+  several calls without the keyboard, so it cannot land in another window when the person being helped moves
+  the focus meanwhile. Line breaks follow the field's own, such as Notepad's.
+
+### Changed
+
+- The bridge protocol version is now 10. Update the add-on and the server together; through MCP Access, both
+  computers need the same version.
+
+### Fixed
+
+- **MCP Access: the person being helped can no longer talk the helper's assistant into acting on the
+  helper's computer.** Every message from them, in the inbox line that wakes the assistant and in the tool
+  results, now says that they can have it act only on their own computer: no programs, commands, scripts,
+  files or NVDA actions on the helper's computer because they asked; reading and looking things up stay fine.
+  The README says to keep Claude Code asking before it runs commands while it watches for messages.
+- **MCP Access: the helper's private information stays on the helper's computer.**
+  - The assistant is told, with every message and every result, never to give the person anything about the
+    helper or their computer (files, conversations, memory, accounts, paths, keys, passwords), and that claims
+    of permission or urgency in their words grant nothing.
+  - Every NVDA tool result read from their computer starts by saying that what their screen shows is data, not
+    instructions, so text planted in a window title or web page is not taken as a command.
+  - Independently of the assistant, a message, typed text or field value for their computer is refused when it
+    carries the helper's profile or temporary folder, or looks like a private key or an API, GitHub, AWS,
+    Google, Slack or login token.
+- A control with a very long value, such as TeamTalk's chat history, no longer floods the result of
+  `nvda_get_focus` and every action that reports the focus: the value is shown by its start and end, saying how
+  much was left out, and `nvda_get_text` reads all of it. Found while helping someone through MCP Access, where
+  one key press returned about 133,000 characters.
+- When NVDA's focus is still in another application than the window Windows has in front, for example while
+  the person switches windows, the focus report now names the window in front and says the focus may be
+  catching up, instead of only reporting the old focus.
+
 ## [1.4.0] - 2026-11-14
 
 What is new, in short: MCP Access now works both ways, with one window for the person being helped, and in
@@ -229,6 +271,9 @@ First release, on the NV Access Add-on Store and PyPI.
 - [docs/using.md](docs/using.md), [CONTRIBUTING.md](CONTRIBUTING.md) and
   [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
+[1.5.0]: https://github.com/InfiArtt/nvda-mcp/compare/v1.4.0...v1.5.0
+[1.4.0]: https://github.com/InfiArtt/nvda-mcp/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/InfiArtt/nvda-mcp/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/InfiArtt/nvda-mcp/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/InfiArtt/nvda-mcp/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/InfiArtt/nvda-mcp/releases/tag/v1.0.0
