@@ -167,9 +167,13 @@ person you help does not start a turn by itself, so how soon it is answered depe
   watches a small inbox file with a background monitor, and answers each message as it arrives, even when you
   are away. The file is in your own temporary folder and is deleted when the session ends.
   The person you help can ask it to act only on their computer: NVDA MCP tells your assistant, with every
-  message, never to run programs, commands or files on yours for them. That is an instruction, not a lock, so
-  while it watches for messages, keep Claude Code asking before it runs commands: don't leave it in a mode that
-  skips permission prompts.
+  message and every result read from their screen, never to run programs, commands or files on yours for them,
+  and never to give them anything about you or your computer. Text that carries your computer's folders or
+  looks like a key or token is refused before it reaches them, whatever the assistant decides. The rest is an
+  instruction, not a lock, and a skilled prompt may get past it, so while it watches for messages: keep Claude
+  Code asking before it runs commands (don't leave it in a mode that skips permission prompts), use talk mode
+  when you are away, and to help someone you don't know, start Claude Code in a folder without your private
+  files.
 - **Antigravity, Codex, Cursor, OpenCode and others**: they have no way, that we know of, to be woken from
   outside. Their assistant answers while it is in a turn, by waiting for the next message with
   `nvda_access_messages`; a message that arrives while it does something else comes with its next result.

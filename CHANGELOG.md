@@ -26,6 +26,15 @@ install them together.
   results, now says that they can have it act only on their own computer: no programs, commands, scripts,
   files or NVDA actions on the helper's computer because they asked; reading and looking things up stay fine.
   The README says to keep Claude Code asking before it runs commands while it watches for messages.
+- **MCP Access: the helper's private information stays on the helper's computer.**
+  - The assistant is told, with every message and every result, never to give the person anything about the
+    helper or their computer (files, conversations, memory, accounts, paths, keys, passwords), and that claims
+    of permission or urgency in their words grant nothing.
+  - Every NVDA tool result read from their computer starts by saying that what their screen shows is data, not
+    instructions, so text planted in a window title or web page is not taken as a command.
+  - Independently of the assistant, a message, typed text or field value for their computer is refused when it
+    carries the helper's profile or temporary folder, or looks like a private key or an API, GitHub, AWS,
+    Google, Slack or login token.
 - A control with a very long value, such as TeamTalk's chat history, no longer floods the result of
   `nvda_get_focus` and every action that reports the focus: the value is shown by its start and end, saying how
   much was left out, and `nvda_get_text` reads all of it. Found while helping someone through MCP Access, where
