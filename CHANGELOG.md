@@ -8,6 +8,13 @@ install them together.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-14
+
+What is new, in short: MCP Access is harder to misuse. The person being helped can no longer get the
+helper's assistant to act on the helper's computer or give away the helper's information, and text that
+carries the helper's folders or a secret is refused before it leaves. Long values, such as a chat history, no
+longer flood results, and `nvda_set_value` can add text at the end.
+
 ### Added
 
 - `nvda_set_value` takes `append`, to add text after what a field already has. Long text can be written in
@@ -264,6 +271,9 @@ First release, on the NV Access Add-on Store and PyPI.
 - [docs/using.md](docs/using.md), [CONTRIBUTING.md](CONTRIBUTING.md) and
   [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
+[1.5.0]: https://github.com/InfiArtt/nvda-mcp/compare/v1.4.0...v1.5.0
+[1.4.0]: https://github.com/InfiArtt/nvda-mcp/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/InfiArtt/nvda-mcp/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/InfiArtt/nvda-mcp/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/InfiArtt/nvda-mcp/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/InfiArtt/nvda-mcp/releases/tag/v1.0.0
