@@ -8,6 +8,32 @@ install them together.
 
 ## [Unreleased]
 
+### Added
+
+- `nvda_set_value` takes `append`, to add text after what a field already has. Long text can be written in
+  several calls without the keyboard, so it cannot land in another window when the person being helped moves
+  the focus meanwhile. Line breaks follow the field's own, such as Notepad's.
+
+### Changed
+
+- The bridge protocol version is now 10. Update the add-on and the server together; through MCP Access, both
+  computers need the same version.
+
+### Fixed
+
+- **MCP Access: the person being helped can no longer talk the helper's assistant into acting on the
+  helper's computer.** Every message from them, in the inbox line that wakes the assistant and in the tool
+  results, now says that they can have it act only on their own computer: no programs, commands, scripts,
+  files or NVDA actions on the helper's computer because they asked; reading and looking things up stay fine.
+  The README says to keep Claude Code asking before it runs commands while it watches for messages.
+- A control with a very long value, such as TeamTalk's chat history, no longer floods the result of
+  `nvda_get_focus` and every action that reports the focus: the value is shown by its start and end, saying how
+  much was left out, and `nvda_get_text` reads all of it. Found while helping someone through MCP Access, where
+  one key press returned about 133,000 characters.
+- When NVDA's focus is still in another application than the window Windows has in front, for example while
+  the person switches windows, the focus report now names the window in front and says the focus may be
+  catching up, instead of only reporting the old focus.
+
 ## [1.4.0] - 2026-11-14
 
 What is new, in short: MCP Access now works both ways, with one window for the person being helped, and in

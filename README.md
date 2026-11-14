@@ -166,6 +166,10 @@ person you help does not start a turn by itself, so how soon it is answered depe
 - **Claude Code**, including the Code tab of the Claude app: their messages can wake it. After connecting, it
   watches a small inbox file with a background monitor, and answers each message as it arrives, even when you
   are away. The file is in your own temporary folder and is deleted when the session ends.
+  The person you help can ask it to act only on their computer: NVDA MCP tells your assistant, with every
+  message, never to run programs, commands or files on yours for them. That is an instruction, not a lock, so
+  while it watches for messages, keep Claude Code asking before it runs commands: don't leave it in a mode that
+  skips permission prompts.
 - **Antigravity, Codex, Cursor, OpenCode and others**: they have no way, that we know of, to be woken from
   outside. Their assistant answers while it is in a turn, by waiting for the next message with
   `nvda_access_messages`; a message that arrives while it does something else comes with its next result.

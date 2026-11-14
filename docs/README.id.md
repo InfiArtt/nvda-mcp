@@ -179,6 +179,10 @@ tergantung asisten Anda:
   asisten memantau file kotak masuk kecil dengan pemantau latar belakang, dan menjawab setiap pesan begitu
   datang, walaupun Anda sedang pergi. File itu ada di folder sementara milik Anda sendiri dan dihapus saat sesi
   berakhir.
+  Orang yang Anda bantu hanya bisa meminta asisten bertindak di komputer mereka sendiri: di setiap pesan, NVDA
+  MCP mengingatkan asisten Anda agar tidak pernah menjalankan program, perintah, atau file di komputer Anda
+  untuk mereka. Itu instruksi, bukan kunci, jadi selama asisten memantau pesan, biarkan Claude Code tetap
+  bertanya sebelum menjalankan perintah: jangan tinggalkan dalam mode yang melewati permintaan izin.
 - **Antigravity, Codex, Cursor, OpenCode, dan lainnya**: sepengetahuan kami, mereka tidak bisa dibangunkan dari
   luar. Asisten menjawab selama sedang dalam giliran, dengan menunggu pesan berikutnya lewat
   `nvda_access_messages`; pesan yang datang selagi asisten mengerjakan hal lain ikut muncul di hasil berikutnya.

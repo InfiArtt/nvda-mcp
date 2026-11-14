@@ -58,6 +58,7 @@ from .focusCatchUp import catchUpEvents, earlyWindowEvent
 from .objectRegistry import ObjectRegistry
 from .speechLog import SpeechLog
 from .treeWalk import searchTrees, walkTree
+from .valueText import appendedValue
 from .webIds import domNodeIdFromRuntimeId
 
 addonHandler.initTranslation()
@@ -605,6 +606,28 @@ def inspectObject(obj: NVDAObject) -> dict[str, Any]:
 	return {key: value for key, value in result.items() if value not in (None, "", {}, [])}
 
 
+def _windowInFrontElsewhere(focus: NVDAObject) -> str | None:
+	"""The title of the window Windows has in front, when NVDA's focus is in another one.
+
+	NVDA learns of a new focus from events it may handle late, for example while the user switches windows,
+	so the focus it reports can lag behind the window keys actually go to.
+	"""
+	focusWindow = _safeGet(focus, "windowHandle")
+	foreground = winUser.getForegroundWindow()
+	if not focusWindow or not foreground:
+		return None
+	foregroundRoot = winUser.getAncestor(foreground, winUser.GA_ROOT)
+	if winUser.getAncestor(focusWindow, winUser.GA_ROOT) == foregroundRoot:
+		return None
+	# Menus and popups are windows of their own in the same application: not a lagging focus.
+	if (
+		winUser.getWindowThreadProcessID(focusWindow)[0]
+		== winUser.getWindowThreadProcessID(foregroundRoot)[0]
+	):
+		return None
+	return winUser.getWindowText(foregroundRoot) or "(a window without a title)"
+
+
 def _setObjectValue(obj: NVDAObject, text: str) -> str:
 	"""Give a control new text through its accessibility API, without keyboard input or focus.
 
@@ -864,6 +887,9 @@ class NvdaActions:
 		mode = _documentMode()
 		if mode is not None:
 			result["documentMode"] = mode
+		inFront = _windowInFrontElsewhere(focus)
+		if inFront is not None:
+			result["foregroundWindow"] = inFront
 		return result
 
 	def _getNavigator(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -1476,15 +1502,27 @@ class NvdaActions:
 			raise BridgeError("badParams", "text must be a string. Pass an empty string to clear the field.")
 		if len(text) > MAX_TYPE_CHARS:
 			raise BridgeError("badParams", f"At most {MAX_TYPE_CHARS} characters per call.")
+		append = params.get("append", False)
+		if not isinstance(append, bool):
+			raise BridgeError("badParams", "append must be true or false.")
 		obj = self.foundObject(params) if params.get("id") is not None else wxCallOnMain(api.getFocusObject)
 		used: dict[str, str] = {}
 
 		def perform() -> None:
-			used["method"] = wxCallOnMain(_setObjectValue, obj, text)
+			def setOnMain() -> str:
+				# Read just before writing, so text the user added meanwhile is kept.
+				newText = appendedValue(_safeGet(obj, "value"), text) if append else text
+				return _setObjectValue(obj, newText)
+
+			used["method"] = wxCallOnMain(setOnMain)
 
 		result = self.runControlled(
 			"setValue",
-			{"object": wxCallOnMain(_safeGet, obj, "name"), "text": text},
+			{
+				"object": wxCallOnMain(_safeGet, obj, "name"),
+				"text": text,
+				**({"append": True} if append else {}),
+			},
 			perform,
 			params,
 			targetApp=wxCallOnMain(_appNameOf, obj),
